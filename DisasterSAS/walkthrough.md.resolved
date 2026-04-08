@@ -1,0 +1,90 @@
+# DisasterSAS — Full System Walkthrough
+
+Complete Disaster Management System with Flask backend and HTML/CSS/JS frontend covering all 9 modules.
+
+## System Architecture
+
+```mermaid
+graph TB
+    subgraph Frontend["Frontend (HTML/CSS/JS)"]
+        LOGIN[Login / Register]
+        DASH[Dashboard]
+        WEATHER[Weather Monitor]
+        MAP[Live Map]
+        ALERTS[Alerts]
+        SHELTERS[Shelters]
+        SURVIVORS[Survivors]
+        MISSING[Missing Persons]
+        VOLUNTEERS[Volunteers]
+        REQUESTS[Emergency Requests]
+        RESOURCES[Resources]
+        EMERGENCY[Emergency Contacts]
+    end
+    
+    subgraph Backend["Flask Backend"]
+        API[REST APIs]
+        SOCKET[Socket.IO]
+        EMAIL[Email Service]
+    end
+    
+    subgraph Database["SQLite Database"]
+        MODELS["10 Models"]
+    end
+    
+    Frontend --> API
+    API --> Database
+    SOCKET --> Frontend
+    API --> EMAIL
+```
+
+## Modules Implemented
+
+| # | Module | Backend | Frontend | Key Features |
+|---|---|---|---|---|
+| 1 | Weather Monitoring | [weather.py](file:///d:/DisasterSAS/disaster_backend/routes/weather.py) | [weather.html](file:///d:/DisasterSAS/disater_frontend/weather.html) | Real-time API, disaster detection, auto-alerts, email notifications |
+| 2 | Shelter Management | [shelter_routes.py](file:///d:/DisasterSAS/disaster_backend/routes/shelter_routes.py) | [shelters.html](file:///d:/DisasterSAS/disater_frontend/shelters.html) | CRUD, nearest shelter (Haversine), capacity tracking, stats |
+| 3 | Volunteer Management | [volunteer_routes.py](file:///d:/DisasterSAS/disaster_backend/routes/volunteer_routes.py) | [volunteers.html](file:///d:/DisasterSAS/disater_frontend/volunteers.html) | Skill categories, shelter assignment, volunteer limits |
+| 4 | Survivor Registration | [survivor_routes.py](file:///d:/DisasterSAS/disaster_backend/routes/survivor_routes.py) | [survivors.html](file:///d:/DisasterSAS/disater_frontend/survivors.html) | Auto-updates shelter occupancy, search across shelters |
+| 5 | Missing Person Tracking | [missing_routes.py](file:///d:/DisasterSAS/disaster_backend/routes/missing_routes.py) | [missing.html](file:///d:/DisasterSAS/disater_frontend/missing.html) | Report, search, mark as found |
+| 6 | Emergency Requests | [request_routes.py](file:///d:/DisasterSAS/disaster_backend/routes/request_routes.py) | [requests.html](file:///d:/DisasterSAS/disater_frontend/requests.html) | Food/water/medical/evacuation, status workflow |
+| 7 | Resource Management | [resource_routes.py](file:///d:/DisasterSAS/disaster_backend/routes/resource_routes.py) | [resources.html](file:///d:/DisasterSAS/disater_frontend/resources.html) | Per-shelter inventory, low-stock alerts |
+| 8 | Dashboard | `dashboard/stats` | [dashboard.html](file:///d:/DisasterSAS/disater_frontend/dashboard.html) | All module stats, 2 charts, recent alerts |
+| 9 | Notifications | Socket.IO + email | Toast system | Real-time alerts, email on disaster detection |
+
+## Verified Dashboard
+
+![Dashboard showing shelter & people stats](C:\Users\dell\.gemini\antigravity\brain\34245e03-2806-4522-9232-c99d4ef8727a\dashboard_middle_1773145654526.png)
+
+![Dashboard showing charts and all sidebar links](C:\Users\dell\.gemini\antigravity\brain\34245e03-2806-4522-9232-c99d4ef8727a\dashboard_charts_1773145662671.png)
+
+## Files Modified/Created
+
+### Backend (7 files changed)
+| File | Change |
+|---|---|
+| [models.py](file:///d:/DisasterSAS/disaster_backend/models.py) | Added [Survivor](file:///d:/DisasterSAS/disaster_backend/models.py#98-114), [EmergencyRequest](file:///d:/DisasterSAS/disaster_backend/models.py#116-132), [Resource](file:///d:/DisasterSAS/disaster_backend/models.py#134-147) models + `shelter_id` on Volunteer |
+| [app.py](file:///d:/DisasterSAS/disaster_backend/app.py) | Registered 3 new blueprints |
+| [survivor_routes.py](file:///d:/DisasterSAS/disaster_backend/routes/survivor_routes.py) | **[NEW]** CRUD + search + auto shelter occupancy |
+| [request_routes.py](file:///d:/DisasterSAS/disaster_backend/routes/request_routes.py) | **[NEW]** Emergency requests with status workflow + stats |
+| [resource_routes.py](file:///d:/DisasterSAS/disaster_backend/routes/resource_routes.py) | **[NEW]** Resource inventory + low-stock detection |
+| [shelter_routes.py](file:///d:/DisasterSAS/disaster_backend/routes/shelter_routes.py) | Added nearest shelter (Haversine) + stats endpoint |
+| [volunteer_routes.py](file:///d:/DisasterSAS/disaster_backend/routes/volunteer_routes.py) | Added skill categories, shelter assignment, volunteer limits |
+
+### Frontend (7 files changed)
+| File | Change |
+|---|---|
+| [app.js](file:///d:/DisasterSAS/disater_frontend/app.js) | Added 3 new sidebar links |
+| [dashboard.html](file:///d:/DisasterSAS/disater_frontend/dashboard.html) | Enhanced with all-module stats + 2 charts |
+| [shelters.html](file:///d:/DisasterSAS/disater_frontend/shelters.html) | Added Find Nearest, stats cards, available beds |
+| [volunteers.html](file:///d:/DisasterSAS/disater_frontend/volunteers.html) | Skill checkboxes, shelter assignment, skill/shelter filters |
+| [survivors.html](file:///d:/DisasterSAS/disater_frontend/survivors.html) | **[NEW]** Register survivors at shelters |
+| [requests.html](file:///d:/DisasterSAS/disater_frontend/requests.html) | **[NEW]** Emergency request system |
+| [resources.html](file:///d:/DisasterSAS/disater_frontend/resources.html) | **[NEW]** Resource management per shelter |
+
+## Verification Results
+
+- ✅ Backend starts without errors — 10 models, 10 blueprints
+- ✅ Database auto-creates with all tables
+- ✅ Dashboard renders all 3 stat sections + 2 charts
+- ✅ Sidebar shows all 11 navigation links
+- ✅ Registration and login flow works end-to-end

@@ -1,0 +1,22 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      FLASK_ENV: development
+      FLASK_DEBUG: 1
+    volumes:
+      - ./disaster_backend:/app
+    develop:
+      watch:
+        - path: ./disaster_backend
+          action: sync
+
+  frontend:
+    volumes:
+      - ./disaster_frontend:/usr/share/nginx/html:ro
+    develop:
+      watch:
+        - path: ./disaster_frontend
+          action: sync+restart

@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weather - DisasterSAS</title>
+    <meta name="description" content="Weather intelligence and disaster risk reports">
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+    <div class="main weather-main-page" id="mainContent">
+        <div class="page-header weather-page-header">
+            <h1>Weather And Risk Intelligence</h1>
+            <p id="locationStatus">Detecting your location...</p>
+        </div>
+
+        <div class="search-bar compact-actions weather-search">
+            <input type="text" id="cityInput" class="form-control"
+                placeholder="Enter city name or use location detection"
+                onkeyup="if(event.key==='Enter') searchWeather()">
+            <button class="btn btn-secondary" onclick="detectLocation()" id="locateBtn">Use Location</button>
+            <button class="btn btn-primary" onclick="searchWeather()" id="searchBtn">View Report</button>
+        </div>
+
+        <div id="weatherResult" style="display:none">
+            <div class="weather-display weather-display-modern">
+                <div class="card weather-main weather-main-modern" id="weatherMain"></div>
+                <div class="card weather-kpi-panel">
+                    <h3 class="weather-section-title">Current Conditions</h3>
+                    <div class="weather-details weather-details-modern" id="weatherDetails"></div>
+                </div>
+            </div>
+
+            <div id="alertBanner"></div>
+
+            <div class="weather-view-tabs">
+                <button class="weather-tab active" data-view="today" onclick="setWeatherView('today')">Today</button>
+                <button class="weather-tab" data-view="hourly" onclick="setWeatherView('hourly')">Hourly</button>
+                <button class="weather-tab" data-view="fifteen" onclick="setWeatherView('fifteen')">15 Day</button>
+            </div>
+
+            <div class="weather-view-panel active" id="view-today">
+                <div class="weather-rich-grid">
+                    <div class="card weather-sun-card" id="sunCycleCard"></div>
+                    <div class="card weather-tips-card">
+                        <div class="weather-card-head">
+                            <h3 class="weather-section-title">Lifestyle Tips</h3>
+                            <span id="tipsCount">0 tips</span>
+                        </div>
+                        <div class="weather-tip-grid" id="lifestyleTips"></div>
+                    </div>
+                </div>
+
+                <div class="card weather-today-card" id="todayDetailsCard"></div>
+                <div class="card weather-aqi-card" id="aqiCard"></div>
+            </div>
+
+            <div class="weather-view-panel" id="view-hourly">
+                <div class="card weather-hourly-card" id="hourlyCard"></div>
+            </div>
+
+            <div class="weather-view-panel" id="view-fifteen">
+                <div class="card weather-15day-card" id="fifteenDayCard"></div>
+            </div>
+        </div>
+
+        <div id="forecastSection" class="weather-section-block" style="display:none">
+            <div class="card">
+                <h3 class="weather-section-title">Upcoming Disaster Predictions</h3>
+                <p style="color:var(--text-secondary);font-size:.85rem;margin:8px 0 14px 0" id="forecastMsg"></p>
+                <div class="forecast-list" id="forecastList"></div>
+            </div>
+        </div>
+
+        <div class="card weather-analytics-card">
+            <h3 class="weather-section-title">Weather Analytics</h3>
+            <div class="stats-grid" id="analyticsGrid">
+                <div class="loading-overlay"><span class="spinner"></span> Loading analytics...</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+    <script>
+        if (!requirePagePermission("weather:view")) throw "redirect";
+        buildSidebar("weather.html");
+        initSocket();
+        const canViewWeatherAnalytics = can("weather:analytics");
+
+        let activeWeatherView = "today";
+        const weatherLocationGate = window.DisasterLocation?.createLookupGate ? DisasterLocation.createLookupGate() : {
+            begin: () => true,
+            end: () => {},
+            isBusy: () => false
+        };
+
+        const tipIconMap = {
+            mask: "MSK",
+            water: "H2O",
+            indoor: "IN",
+            drive: "DRV",
+            allergy: "ALG",
+            uv: "UV",
+            sleep: "SLP",
+            trip: "TRP"
+        };
+
+        function nearestCity(lat, lng) {
+            return DisasterLocation?.nearestCity ? DisasterLocation.nearestCity(lat, lng) : null;
+        }
+
+        function setWeatherView(view) {
+            activeWeatherView = view;
+            document.querySelectorAll(".weather-tab").forEach(btn => {
+                btn.classList.toggle("active", btn.dataset.view === view);
+            });
+            document.querySelectorAll(".weather-view-panel").forEach(panel => {
+                panel.classList.toggle("active", panel.id === `view-${view}`);
+            });
+        }
+
+        function toggleHourlyDetail(btn) {
+            const parent = btn.closest(".hourly-entry");
+            if (!parent) return;
+            parent.classList.toggle("open");
+        }
+
+        function detectLocation() {
+            const status = document.getElementById("locationStatus");
+            const btn = document.getElementById("locateBtn");
+            if (weatherLocationGate.isBusy()) return;
+            weatherLocationGate.begin();
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Locating...';
+
+            if (!navigator.geolocation) {
+                status.textContent = "Geolocation not supported. Search manually.";
+                btn.disabled = false;
+                btn.innerHTML = "Use Location";
+                weatherLocationGate.end();
+                return;
+            }
+
+            DisasterLocation.requestPrecisePosition({ timeout: 8000, maximumAge: 0 }).then((pos) => {
+                    const lat = pos.coords.latitude;
+                    const lng = pos.coords.longitude;
+                    const city = nearestCity(lat, lng) || { name: "Hyderabad" };
+                    document.getElementById("cityInput").value = city.name;
+                    const accuracy = DisasterLocation.formatLocationAccuracy(pos.coords.accuracy);
+                    status.textContent = accuracy
+                        ? `Location detected: ${city.name} (${accuracy})`
+                        : `Location detected: ${city.name}`;
+                    if (DisasterLocation.isLowLocationAccuracy(pos.coords.accuracy)) {
+                        status.textContent += ". GPS is weak, so search manually if this city looks wrong.";
+                    }
+                    searchWeather();
+                }).catch(() => {
+                    status.textContent = "Location access denied or unavailable. Search manually.";
+                }).finally(() => {
+                    btn.disabled = false;
+                    btn.innerHTML = "Use Location";
+                    weatherLocationGate.end();
+                });
+        }
+
+        function parseTimeToMinutes(text) {
+            if (!text || !text.includes(":")) return 0;
+            const parts = text.split(":");
+            const h = parseInt(parts[0], 10) || 0;
+            const m = parseInt(parts[1], 10) || 0;
+            return (h * 60) + m;
+        }
+
+        function daylightProgress(sunrise, sunset) {
+            const now = new Date();
+            const current = (now.getHours() * 60) + now.getMinutes();
+            const start = parseTimeToMinutes(sunrise);
+            const end = parseTimeToMinutes(sunset);
+            if (end <= start) return 0;
+            if (current <= start) return 0;
+            if (current >= end) return 1;
+            return (current - start) / (end - start);
+        }
+
+        function riskClassFromIndex(index) {
+            const score = Number(index) || 1;
+            if (score <= 3) return "low";
+            if (score <= 6) return "moderate";
+            if (score <= 8) return "high";
+            return "critical";
+        }
+
+        function conditionToken(condition) {
+            const text = String(condition || "").toLowerCase();
+            if (text.includes("rain")) return "RAN";
+            if (text.includes("sun")) return "SUN";
+            if (text.includes("cloud")) return "CLD";
+            return "MIX";
+        }
+
+        function resolveWeatherTheme(weather, reportData) {
+            const desc = String(weather && weather.weather ? weather.weather : "").toLowerCase();
+            const temp = Number(weather && Number.isFinite(weather.temperature)
+                ? weather.temperature
+                : reportData && reportData.snapshot && Number.isFinite(reportData.snapshot.temperature)
+                    ? reportData.snapshot.temperature
+                    : NaN);
+            const wind = Number(weather && Number.isFinite(weather.wind_speed) ? weather.wind_speed : 0);
+
+            if (desc.includes("thunder") || desc.includes("storm") || wind >= 14) return "storm";
+            if (desc.includes("rain") || desc.includes("drizzle") || desc.includes("shower")) return "rainy";
+            if (desc.includes("hot") || (Number.isFinite(temp) && temp >= 36)) return "hot";
+            if (desc.includes("mist") || desc.includes("fog") || (Number.isFinite(temp) && temp <= 22)) return "cool";
+            return "clear";
+        }
+
+        function getSavedWeatherCity() {
+            const context = getStoredWeatherContext();
+            if (context && typeof context.city === "string") {
+                const city = context.city.trim();
+                if (city) return city;
+            }
+
+            const statusText = document.getElementById("locationStatus")?.textContent || "";
+            const detectedMatch = statusText.match(/(?:Showing weather report for|Location detected \(offline\):)\s*(.+)$/i);
+            if (detectedMatch && detectedMatch[1]) {
+                return detectedMatch[1].trim();
+            }
+
+            return "";
+        }
+
+        function resolveCityForSearch() {
+            const input = document.getElementById("cityInput");
+            const typedCity = input ? input.value.trim() : "";
+            if (typedCity) {
+                return DisasterLocation?.resolveCity?.(typedCity)?.name || typedCity;
+            }
+
+            const savedCity = getSavedWeatherCity();
+            if (savedCity && input) {
+                input.value = savedCity;
+            }
+            return savedCity;
+        }
+
+        function applyWeatherTheme(weather, reportData) {
+            const main = document.getElementById("mainContent");
+            const theme = weather || reportData
+                ? resolveWeatherTheme(weather, reportData)
+                : getStoredWeatherTheme();
+
+            if (main) {
+                main.setAttribute("data-weather-theme", theme);
+            }
+
+            if (weather || reportData) {
+                setWeatherTheme(theme, {
+                    city: weather && weather.city ? weather.city : null,
+                    condition: weather && weather.weather ? weather.weather : null,
+                    temperature: weather && Number.isFinite(weather.temperature) ? weather.temperature : null,
+                    updatedAt: new Date().toISOString(),
+                });
+            } else {
+                applyWeatherThemeToShell(theme);
+            }
+        }
+
+        function metricBox(label, value, tone = "low") {
+            return `
+                <div class="weather-metric-box ${tone}">
+                    <div class="label">${label}</div>
+                    <div class="value">${value}</div>
+                </div>
+            `;
+        }
+
+        function renderPrimaryPanel(weather, reportData) {
+            const report = reportData && reportData.report ? reportData.report : null;
+            const generatedAt = report && report.generated_at
+                ? new Date(report.generated_at).toLocaleString("en-IN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "short" })
+                : new Date().toLocaleString("en-IN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "short" });
+
+            const todayDetails = reportData && reportData.today_details ? reportData.today_details : null;
+            const aqi = report && report.air_quality ? report.air_quality.index : "-";
+            const aqiLevel = report && report.air_quality ? report.air_quality.level : "Unknown";
+            const highLow = todayDetails ? `${Math.round(todayDetails.high_c)} / ${Math.round(todayDetails.low_c)} deg` : "--";
+
+            document.getElementById("weatherMain").innerHTML = `
+                <div class="weather-main-kicker">${weather.city}</div>
+                <div class="temp">${Math.round(weather.temperature)}&deg;C</div>
+                <div class="city">${weather.weather}</div>
+                <div class="desc">Day/Night ${highLow}</div>
+                <div class="weather-main-meta">
+                    <span>AQI ${aqi} (${aqiLevel})</span>
+                    <span>Updated ${generatedAt}</span>
+                </div>
+            `;
+
+            const pressure = report && report.metrics ? `${report.metrics.pressure_hpa} hPa` : "--";
+            const visibility = report && report.metrics ? `${report.metrics.visibility_km} km` : "--";
+            const uv = report && report.metrics ? `${report.metrics.uv_index} (${report.metrics.uv_risk})` : "--";
+            const aqiTone = riskClassFromIndex(aqi);
+
+            document.getElementById("weatherDetails").innerHTML = [
+                metricBox("Humidity", `${weather.humidity}%`, riskClassFromIndex(Math.round(weather.humidity / 10))),
+                metricBox("Wind speed", `${weather.wind_speed} m/s`, riskClassFromIndex(Math.round(weather.wind_speed / 2))),
+                metricBox("Air pressure", pressure, "low"),
+                metricBox("Visibility", visibility, "moderate"),
+                metricBox("UV index", uv, riskClassFromIndex(report && report.metrics ? report.metrics.uv_index : 1)),
+                metricBox("Air quality", `${aqi} (${aqiLevel})`, aqiTone)
+            ].join("");
+        }
+
+        function renderSunCycle(reportData) {
+            const details = reportData && reportData.today_details ? reportData.today_details : null;
+            const report = reportData && reportData.report ? reportData.report : null;
+            const metrics = report ? report.metrics : null;
+            const sunrise = details ? details.sunrise : (metrics ? metrics.sunrise : "--:--");
+            const sunset = details ? details.sunset : (metrics ? metrics.sunset : "--:--");
+            const progress = Math.round(daylightProgress(sunrise, sunset) * 100);
+            const feelsLike = details ? `${Math.round(details.feels_like_c)} deg` : "--";
+
+            document.getElementById("sunCycleCard").innerHTML = `
+                <div class="weather-card-head">
+                    <h3 class="weather-section-title">Feels Like</h3>
+                    <span>${feelsLike}</span>
+                </div>
+                <div class="sun-arc-wrap">
+                    <div class="sun-arc"></div>
+                    <div class="sun-arc-progress" style="--angle:${Math.round(progress * 1.8) - 90}deg"></div>
+                </div>
+                <div class="sun-times">
+                    <div><strong>Sunrise</strong><span>${sunrise}</span></div>
+                    <div><strong>Sunset</strong><span>${sunset}</span></div>
+                </div>
+            `;
+        }
+
+        function renderTodayDetails(reportData) {
+            const details = reportData && reportData.today_details ? reportData.today_details : null;
+            if (!details) {
+                document.getElementById("todayDetailsCard").innerHTML = '<div class="empty-state"><p>Today details are unavailable.</p></div>';
+                return;
+            }
+
+            const rows = [
+                ["High / Low", `${Math.round(details.high_c)} / ${Math.round(details.low_c)} deg`],
+                ["Wind", `${details.wind_dir} ${Math.round(details.wind_kmh)} km/h`],
+                ["Humidity", `${details.humidity_pct}%`],
+                ["Dew Point", `${Math.round(details.dew_point_c)} deg`],
+                ["Pressure", `${details.pressure_hpa} mb`],
+                ["UV Index", `${details.uv_index} of 11`],
+                ["Visibility", `${details.visibility_km} km`],
+                ["Moon Phase", `${details.moon_phase}`]
+            ];
+
+            document.getElementById("todayDetailsCard").innerHTML = `
+                <h3 class="weather-section-title">Today Details</h3>
+                <div class="today-detail-list">
+                    ${rows.map(pair => `
+                        <div class="today-detail-row">
+                            <span>${pair[0]}</span>
+                            <strong>${pair[1]}</strong>
+                        </div>
+                    `).join("")}
+                </div>
+            `;
+        }
+
+        function renderTips(reportData) {
+            const tips = reportData && reportData.report && reportData.report.lifestyle_tips
+                ? reportData.report.lifestyle_tips
+                : [];
+
+            document.getElementById("tipsCount").textContent = `${tips.length} tips`;
+            if (!tips.length) {
+                document.getElementById("lifestyleTips").innerHTML = '<div class="empty-state"><p>No lifestyle tips available.</p></div>';
+                return;
+            }
+
+            document.getElementById("lifestyleTips").innerHTML = tips.map(item => `
+                <div class="weather-tip-item">
+                    <div class="tip-icon">${tipIconMap[item.icon] || "TIP"}</div>
+                    <div class="tip-text">${item.tip}</div>
+                </div>
+            `).join("");
+        }
+
+        function renderAqiCard(reportData) {
+            const report = reportData && reportData.report ? reportData.report : null;
+            if (!report || !report.air_quality) {
+                document.getElementById("aqiCard").innerHTML = '<div class="empty-state"><p>Air quality report is not available for this location.</p></div>';
+                return;
+            }
+
+            const aqi = report.air_quality;
+            const primary = aqi.primary_pollutant || {};
+            const ringClass = riskClassFromIndex(aqi.index);
+
+            document.getElementById("aqiCard").innerHTML = `
+                <div class="aqi-top">
+                    <div class="aqi-ring ${ringClass}" style="--ring:${Math.max(10, Math.min(100, aqi.index * 10))}%">
+                        <span>${aqi.index}</span>
+                    </div>
+                    <div class="aqi-summary">
+                        <h3 class="weather-section-title">${aqi.level}</h3>
+                        <p>${aqi.summary}</p>
+                        <div class="aqi-primary">
+                            <strong>Primary pollutant:</strong>
+                            <span>${primary.code || "--"} (${primary.value || "--"} ${primary.unit || ""})</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="aqi-list">
+                    ${(aqi.pollutants || []).map(p => `
+                        <div class="aqi-list-item">
+                            <div class="aqi-mini-ring ${riskClassFromIndex(p.score)}" style="--ring:${Math.max(10, Math.min(100, p.score * 10))}%">
+                                <span>${p.score}</span>
+                            </div>
+                            <div class="aqi-item-main">
+                                <strong>${p.code}</strong>
+                                <small>${p.name}</small>
+                            </div>
+                            <div class="aqi-item-meta">
+                                <div>${p.level}</div>
+                                <small>${p.value} ${p.unit}</small>
+                            </div>
+                        </div>
+                    `).join("")}
+                </div>
+            `;
+        }
+
+        function renderHourly(reportData) {
+            const rows = reportData && Array.isArray(reportData.hourly_forecast) ? reportData.hourly_forecast : [];
+            if (!rows.length) {
+                document.getElementById("hourlyCard").innerHTML = '<div class="empty-state"><p>Hourly weather is not available.</p></div>';
+                return;
+            }
+
+            const grouped = rows.reduce((acc, row) => {
+                const key = row.day_label;
+                if (!acc[key]) acc[key] = [];
+                acc[key].push(row);
+                return acc;
+            }, {});
+
+            const sections = Object.entries(grouped).map(([day, list]) => `
+                <div class="hourly-day-block">
+                    <h4>${day}</h4>
+                    ${list.map((item, idx) => `
+                        <div class="hourly-entry ${idx === 0 ? "open" : ""}">
+                            <button class="hourly-row" type="button" onclick="toggleHourlyDetail(this)">
+                                <span class="time">${item.time_label}</span>
+                                <span class="temp">${Math.round(item.temperature_c)}&deg;</span>
+                                <span class="cond">${conditionToken(item.condition)}</span>
+                                <span class="rain">${item.rain_chance_pct}%</span>
+                                <span class="expander">+</span>
+                            </button>
+                            <div class="hourly-detail-grid">
+                                <div><span>Feels Like</span><strong>${Math.round(item.feels_like_c)}&deg;</strong></div>
+                                <div><span>Wind</span><strong>${item.wind_dir} ${Math.round(item.wind_kmh)} km/h</strong></div>
+                                <div><span>Humidity</span><strong>${item.humidity_pct}%</strong></div>
+                                <div><span>UV Index</span><strong>${item.uv_index} of 11</strong></div>
+                                <div><span>Cloud Cover</span><strong>${item.cloud_cover_pct}%</strong></div>
+                                <div><span>Rain Amount</span><strong>${item.rain_amount_mm} mm</strong></div>
+                            </div>
+                        </div>
+                    `).join("")}
+                </div>
+            `).join("");
+
+            document.getElementById("hourlyCard").innerHTML = `
+                <div class="weather-card-head">
+                    <h3 class="weather-section-title">Hourly Weather</h3>
+                    <span>As of ${new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</span>
+                </div>
+                <div class="hourly-list">${sections}</div>
+            `;
+        }
+
+        function render15Day(reportData) {
+            const items = reportData && Array.isArray(reportData.daily_forecast)
+                ? reportData.daily_forecast
+                : [];
+
+            if (!items.length) {
+                document.getElementById("fifteenDayCard").innerHTML = '<div class="empty-state"><p>15-day forecast is not available.</p></div>';
+                return;
+            }
+
+            const maxHigh = Math.max(...items.map(x => x.high_c));
+            const minLow = Math.min(...items.map(x => x.low_c));
+            const range = Math.max(1, maxHigh - minLow);
+
+            const rowHtml = items.map(day => {
+                const highPct = Math.round(((day.high_c - minLow) / range) * 100);
+                const lowPct = Math.round(((day.low_c - minLow) / range) * 100);
+                return `
+                    <div class="fifteen-day-row">
+                        <div class="fifteen-day-date">${day.display_date}</div>
+                        <div class="fifteen-day-condition">${day.condition}</div>
+                        <div class="fifteen-day-band">
+                            <span class="low-dot" style="left:${lowPct}%"></span>
+                            <span class="high-dot" style="left:${highPct}%"></span>
+                            <div class="temp-connector" style="left:${Math.min(lowPct, highPct)}%;width:${Math.max(3, Math.abs(highPct - lowPct))}%"></div>
+                        </div>
+                        <div class="fifteen-day-temps">${Math.round(day.low_c)} / ${Math.round(day.high_c)}&deg;C</div>
+                    </div>
+                `;
+            }).join("");
+
+            document.getElementById("fifteenDayCard").innerHTML = `
+                <div class="weather-card-head">
+                    <h3 class="weather-section-title">15-Day Weather Report</h3>
+                    <span>Updated ${new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</span>
+                </div>
+                <div class="fifteen-day-grid">${rowHtml}</div>
+            `;
+        }
+
+        function renderReportPanels(weather, reportData) {
+            renderPrimaryPanel(weather, reportData);
+            renderSunCycle(reportData);
+            renderTodayDetails(reportData);
+            renderTips(reportData);
+            renderAqiCard(reportData);
+            renderHourly(reportData);
+            render15Day(reportData);
+            setWeatherView(activeWeatherView);
+        }
+
+        async function searchWeather() {
+            const city = resolveCityForSearch();
+            if (!city) {
+                showToast("Enter a city", "Type a city name or tap Use Location first.");
+                return;
+            }
+
+            const btn = document.getElementById("searchBtn");
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span>';
+
+            try {
+                const weatherData = await apiGet("/weather?city=" + encodeURIComponent(city));
+                document.getElementById("weatherResult").style.display = "block";
+                document.getElementById("locationStatus").textContent = `Showing weather report for ${weatherData.city}`;
+
+                let reportData = null;
+                try {
+                    reportData = await apiGet("/weather/report?city=" + encodeURIComponent(city));
+                } catch (err) {
+                    reportData = null;
+                }
+
+                renderReportPanels(weatherData, reportData);
+                applyWeatherTheme(weatherData, reportData);
+
+                const banner = document.getElementById("alertBanner");
+                if (weatherData.disaster_alert && weatherData.disaster_alert !== "No severe weather conditions.") {
+                    const type = weatherData.disaster_alert.includes("Heatwave") || weatherData.disaster_alert.includes("Storm")
+                        ? "danger" : "warning";
+                    banner.innerHTML = `<div class="alert-banner ${type}">${weatherData.disaster_alert}</div>`;
+                } else {
+                    banner.innerHTML = `<div class="alert-banner safe">No severe weather conditions detected.</div>`;
+                }
+
+                loadForecast(city);
+            } catch (err) {
+                showToast("Error", err.error || "Failed to fetch weather data");
+                document.getElementById("weatherResult").style.display = "none";
+                applyWeatherTheme(null, null);
+            }
+
+            btn.disabled = false;
+            btn.innerHTML = "View Report";
+        }
+
+        async function loadForecast(city) {
+            const section = document.getElementById("forecastSection");
+            try {
+                const data = await apiGet("/weather/forecast?city=" + encodeURIComponent(city));
+
+                section.style.display = "block";
+                document.getElementById("forecastMsg").textContent = data.message;
+
+                const list = document.getElementById("forecastList");
+                if (!data.upcoming_disasters || !data.upcoming_disasters.length) {
+                    list.innerHTML = '<div class="empty-state"><p>No disasters predicted in the next few hours.</p></div>';
+                    return;
+                }
+
+                list.innerHTML = data.upcoming_disasters.map(f => `
+                    <div class="card forecast-card">
+                        <div class="fc-time">${f.forecast_time} (~${f.hours_ahead}h ahead)</div>
+                        <div style="margin:6px 0">
+                            <span style="font-weight:700">${Math.round(f.temperature)}&deg;C</span>
+                            <span style="color:var(--text-secondary);margin-left:8px">${f.weather}</span>
+                        </div>
+                        <div style="font-size:.78rem;color:var(--text-secondary);margin-bottom:6px">
+                            Humidity ${f.humidity}% | Wind ${f.wind_speed} m/s
+                        </div>
+                        <div class="fc-alerts">
+                            ${f.alerts.map(a => `<span class="badge badge-${a.severity}">${a.type}</span>`).join(" ")}
+                        </div>
+                    </div>
+                `).join("");
+            } catch (err) {
+                section.style.display = "none";
+            }
+        }
+
+        async function loadAnalytics() {
+            const grid = document.getElementById("analyticsGrid");
+            if (!canViewWeatherAnalytics) {
+                grid.innerHTML = '<div class="empty-state"><p>Weather analytics is available to admin only.</p></div>';
+                return;
+            }
+            try {
+                const a = await apiGet("/weather/analytics", { silentForbidden: true });
+                if (a.message) {
+                    grid.innerHTML = '<div class="empty-state"><p>No analytics data available yet.</p></div>';
+                    return;
+                }
+
+                grid.innerHTML = `
+                    <div class="stat-card">
+                        <div class="stat-icon mono">REC</div>
+                        <div class="stat-value">${a.total_records}</div>
+                        <div class="stat-label">Total Records</div>
+                    </div>
+                    <div class="stat-card danger">
+                        <div class="stat-icon mono">TMP</div>
+                        <div class="stat-value">${a.average_temperature}&deg;C</div>
+                        <div class="stat-label">Avg Temperature</div>
+                    </div>
+                    <div class="stat-card info">
+                        <div class="stat-icon mono">HUM</div>
+                        <div class="stat-value">${a.average_humidity}%</div>
+                        <div class="stat-label">Avg Humidity</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon mono">WND</div>
+                        <div class="stat-value">${a.average_wind_speed}</div>
+                        <div class="stat-label">Avg Wind Speed (m/s)</div>
+                    </div>
+                `;
+            } catch (err) {
+                grid.innerHTML = '<div class="empty-state"><p>Failed to load analytics.</p></div>';
+            }
+        }
+
+        applyWeatherTheme(null, null);
+        detectLocation();
+        loadAnalytics();
+    </script>
+
+</body>
+
+</html>

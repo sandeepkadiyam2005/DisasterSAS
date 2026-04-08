@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Volunteers — DisasterSAS</title>
+    <meta name="description" content="Register and manage disaster relief volunteers with skill categories">
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+    <div class="main" id="mainContent">
+        <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
+            <div>
+                <h1>🤝 Volunteers</h1>
+                <p>Register volunteers with skill categories and shelter assignments</p>
+            </div>
+            <button class="btn btn-primary" id="registerVolunteerBtn" onclick="openModal('volModal'); resetForm()">+ Register Volunteer</button>
+        </div>
+
+        <!-- Filters -->
+        <div class="search-bar">
+            <input type="text" id="cityFilter" class="form-control" placeholder="Filter by city…"
+                style="max-width:200px">
+            <select id="skillFilter" class="form-control" style="max-width:180px">
+                <option value="">All Skills</option>
+                <option value="doctor">🩺 Doctor</option>
+                <option value="nurse">👩‍⚕️ Nurse</option>
+                <option value="rescue">🚒 Rescue</option>
+                <option value="logistics">📦 Logistics</option>
+                <option value="cooking">🍳 Cooking</option>
+                <option value="driving">🚗 Driving</option>
+                <option value="first_aid">🩹 First Aid</option>
+                <option value="counseling">💬 Counseling</option>
+            </select>
+            <select id="shelterFilterVol" class="form-control" style="max-width:200px">
+                <option value="">All Shelters</option>
+            </select>
+            <button class="btn btn-secondary" onclick="loadVolunteers()">🔍 Filter</button>
+        </div>
+
+        <div id="volunteerList">
+            <div class="loading-overlay"><span class="spinner"></span> Loading volunteers…</div>
+        </div>
+    </div>
+
+    <!-- Modal -->
+    <div class="modal-overlay" id="volModal">
+        <div class="modal">
+            <h2 id="modalTitle">Register Volunteer</h2>
+            <input type="hidden" id="editId">
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="name">Full Name</label>
+                    <input type="text" id="name" class="form-control" placeholder="Volunteer's name" required>
+                </div>
+                <div class="form-group">
+                    <label for="phone">Phone</label>
+                    <input type="text" id="phone" class="form-control" placeholder="Phone number" required>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="city">City</label>
+                    <input type="text" id="city" class="form-control" placeholder="City">
+                </div>
+                <div class="form-group">
+                    <label for="availability">Availability</label>
+                    <input type="text" id="availability" class="form-control" placeholder="e.g. Weekends, Full-time">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Skills (select one or more)</label>
+                <div id="skillCheckboxes" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
+                    <label
+                        style="display:flex;align-items:center;gap:6px;font-size:.85rem;color:var(--text-primary);cursor:pointer"><input
+                            type="checkbox" value="doctor"> 🩺 Doctor</label>
+                    <label
+                        style="display:flex;align-items:center;gap:6px;font-size:.85rem;color:var(--text-primary);cursor:pointer"><input
+                            type="checkbox" value="nurse"> 👩‍⚕️ Nurse</label>
+                    <label
+                        style="display:flex;align-items:center;gap:6px;font-size:.85rem;color:var(--text-primary);cursor:pointer"><input
+                            type="checkbox" value="rescue"> 🚒 Rescue</label>
+                    <label
+                        style="display:flex;align-items:center;gap:6px;font-size:.85rem;color:var(--text-primary);cursor:pointer"><input
+                            type="checkbox" value="logistics"> 📦 Logistics</label>
+                    <label
+                        style="display:flex;align-items:center;gap:6px;font-size:.85rem;color:var(--text-primary);cursor:pointer"><input
+                            type="checkbox" value="cooking"> 🍳 Cooking</label>
+                    <label
+                        style="display:flex;align-items:center;gap:6px;font-size:.85rem;color:var(--text-primary);cursor:pointer"><input
+                            type="checkbox" value="driving"> 🚗 Driving</label>
+                    <label
+                        style="display:flex;align-items:center;gap:6px;font-size:.85rem;color:var(--text-primary);cursor:pointer"><input
+                            type="checkbox" value="first_aid"> 🩹 First Aid</label>
+                    <label
+                        style="display:flex;align-items:center;gap:6px;font-size:.85rem;color:var(--text-primary);cursor:pointer"><input
+                            type="checkbox" value="counseling"> 💬 Counseling</label>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="shelter_id">Assign to Shelter</label>
+                <select id="shelter_id" class="form-control">
+                    <option value="">No Assignment</option>
+                </select>
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal('volModal')">Cancel</button>
+                <button class="btn btn-primary" id="saveVolunteerBtn" onclick="saveVolunteer()">Register</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+    <script>
+        if (!requirePagePermission("volunteers:view")) throw "redirect";
+        buildSidebar("volunteers.html");
+        const canManageVolunteers = can("volunteers:manage");
+        if (!canManageVolunteers) {
+            document.getElementById("registerVolunteerBtn").style.display = "none";
+            document.getElementById("saveVolunteerBtn").style.display = "none";
+        }
+
+        const skillIcons = {
+            doctor: "🩺", nurse: "👩‍⚕️", rescue: "🚒", logistics: "📦",
+            cooking: "🍳", driving: "🚗", first_aid: "🩹", counseling: "💬", other: "🔧"
+        };
+
+        async function loadShelterOptions() {
+            try {
+                const shelters = await apiGet("/shelters");
+                const opts = shelters.map(s => `<option value="${s.id}">${s.name}</option>`).join("");
+                document.getElementById("shelter_id").innerHTML = '<option value="">No Assignment</option>' + opts;
+                document.getElementById("shelterFilterVol").innerHTML = '<option value="">All Shelters</option>' + opts;
+            } catch (e) { }
+        }
+
+        function getSelectedSkills() {
+            return Array.from(document.querySelectorAll('#skillCheckboxes input[type="checkbox"]:checked')).map(cb => cb.value).join(", ");
+        }
+
+        function setSelectedSkills(skillStr) {
+            document.querySelectorAll('#skillCheckboxes input[type="checkbox"]').forEach(cb => {
+                cb.checked = skillStr && skillStr.toLowerCase().includes(cb.value);
+            });
+        }
+
+        function resetForm() {
+            document.getElementById("editId").value = "";
+            document.getElementById("name").value = "";
+            document.getElementById("phone").value = "";
+            document.getElementById("city").value = "";
+            document.getElementById("availability").value = "";
+            document.getElementById("shelter_id").value = "";
+            setSelectedSkills("");
+            document.getElementById("modalTitle").textContent = "Register Volunteer";
+        }
+
+        async function loadVolunteers() {
+            const container = document.getElementById("volunteerList");
+            const city = document.getElementById("cityFilter").value.trim();
+            const skill = document.getElementById("skillFilter").value;
+            const shelterId = document.getElementById("shelterFilterVol").value;
+
+            const params = [];
+            if (city) params.push("city=" + encodeURIComponent(city));
+            if (skill) params.push("skill=" + skill);
+            if (shelterId) params.push("shelter_id=" + shelterId);
+            const query = params.length ? "?" + params.join("&") : "";
+
+            try {
+                const vols = await apiGet("/volunteers" + query);
+
+                if (!vols.length) {
+                    container.innerHTML = '<div class="empty-state"><div class="emoji">🤝</div><p>No volunteers found. Be the first to register!</p></div>';
+                    return;
+                }
+
+                container.innerHTML = `
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Phone</th><th>City</th><th>Skills</th><th>Availability</th><th>Shelter</th><th>Registered</th><th>Actions</th></tr></thead>
+            <tbody>
+              ${vols.map(v => `
+                <tr>
+                  <td><strong>${v.name}</strong></td>
+                  <td>${v.phone}</td>
+                  <td>${v.city || "—"}</td>
+                  <td>
+                    ${v.skills ? v.skills.split(",").map(s => {
+                    const sk = s.trim().toLowerCase();
+                    return `<span class="badge badge-medium" style="margin:2px">${skillIcons[sk] || "🔧"} ${s.trim()}</span>`;
+                }).join("") : "—"}
+                  </td>
+                  <td>${v.availability || "—"}</td>
+                  <td>${v.shelter_name || '<span style="color:var(--text-muted)">Unassigned</span>'}</td>
+                  <td style="color:var(--text-muted);font-size:.82rem">${fmtDate(v.registered_at)}</td>
+                  <td>${canManageVolunteers
+                        ? `<button class="btn btn-secondary btn-sm" onclick='editVol(${JSON.stringify(v)})'>✏️</button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteVol(${v.id})">🗑</button>`
+                        : '<span style="color:var(--text-muted)">Read only</span>'}
+                  </td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>`;
+            } catch (err) {
+                container.innerHTML = '<div class="empty-state"><div class="emoji">⚠</div><p>Failed to load volunteers</p></div>';
+            }
+        }
+
+        function editVol(v) {
+            if (!canManageVolunteers) {
+                showToast("Access Denied", "Only admin can modify volunteers.");
+                return;
+            }
+            document.getElementById("editId").value = v.id;
+            document.getElementById("name").value = v.name;
+            document.getElementById("phone").value = v.phone;
+            document.getElementById("city").value = v.city || "";
+            document.getElementById("availability").value = v.availability || "";
+            document.getElementById("shelter_id").value = v.shelter_id || "";
+            setSelectedSkills(v.skills || "");
+            document.getElementById("modalTitle").textContent = "Edit Volunteer";
+            openModal("volModal");
+        }
+
+        async function saveVolunteer() {
+            if (!canManageVolunteers) {
+                showToast("Access Denied", "Only admin can modify volunteers.");
+                return;
+            }
+            const id = document.getElementById("editId").value;
+            const body = {
+                name: document.getElementById("name").value.trim(),
+                phone: document.getElementById("phone").value.trim(),
+                city: document.getElementById("city").value.trim() || null,
+                skills: getSelectedSkills() || null,
+                availability: document.getElementById("availability").value.trim() || null,
+                shelter_id: parseInt(document.getElementById("shelter_id").value) || null
+            };
+
+            if (!body.name || !body.phone) {
+                showToast("⚠ Validation", "Name and phone are required");
+                return;
+            }
+
+            try {
+                if (id) {
+                    await apiPut("/volunteers/" + id, body);
+                    showToast("✅ Updated", "Volunteer info updated");
+                } else {
+                    await apiPost("/volunteers/register", body);
+                    showToast("✅ Registered", "Volunteer registered successfully");
+                }
+                closeModal("volModal");
+                loadVolunteers();
+            } catch (err) {
+                showToast("❌ Error", err.error || "Failed to save");
+            }
+        }
+
+        async function deleteVol(id) {
+            if (!canManageVolunteers) {
+                showToast("Access Denied", "Only admin can modify volunteers.");
+                return;
+            }
+            if (!confirm("Remove this volunteer?")) return;
+            try {
+                await apiDelete("/volunteers/" + id);
+                showToast("🗑 Removed", "Volunteer removed");
+                loadVolunteers();
+            } catch (err) {
+                showToast("❌ Error", err.error || "Failed to delete");
+            }
+        }
+
+        loadShelterOptions();
+        loadVolunteers();
+    </script>
+
+</body>
+
+</html>

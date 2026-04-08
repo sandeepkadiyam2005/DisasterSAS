@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emergency Contacts — DisasterSAS</title>
+    <meta name="description" content="Manage emergency service contacts — police, fire, medical, rescue">
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+    <div class="main" id="mainContent">
+        <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
+            <div>
+                <h1>📞 Emergency Contacts</h1>
+                <p>Manage emergency service contacts for disaster response</p>
+            </div>
+            <button class="btn btn-primary" id="addContactBtn" onclick="openModal('contactModal'); resetForm()">+ Add Contact</button>
+        </div>
+
+        <!-- Filter -->
+        <div class="search-bar">
+            <input type="text" id="cityFilter" class="form-control" placeholder="Filter by city…"
+                style="max-width:250px">
+            <button class="btn btn-secondary" onclick="loadContacts()">🔍 Filter</button>
+        </div>
+
+        <div id="contactList">
+            <div class="loading-overlay"><span class="spinner"></span> Loading contacts…</div>
+        </div>
+    </div>
+
+    <!-- Modal -->
+    <div class="modal-overlay" id="contactModal">
+        <div class="modal">
+            <h2 id="modalTitle">Add Emergency Contact</h2>
+            <input type="hidden" id="editId">
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="name">Name / Department</label>
+                    <input type="text" id="name" class="form-control" placeholder="e.g. City Fire Station" required>
+                </div>
+                <div class="form-group">
+                    <label for="phone">Phone Number</label>
+                    <input type="text" id="phone" class="form-control" placeholder="e.g. 101, +91-9876543210" required>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="service_type">Service Type</label>
+                    <select id="service_type" class="form-control" required>
+                        <option value="police">🚔 Police</option>
+                        <option value="fire">🚒 Fire</option>
+                        <option value="medical">🏥 Medical</option>
+                        <option value="rescue">🚁 Rescue</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="city">City</label>
+                    <input type="text" id="city" class="form-control" placeholder="City name">
+                </div>
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal('contactModal')">Cancel</button>
+                <button class="btn btn-primary" id="saveContactBtn" onclick="saveContact()">Save Contact</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+    <script>
+        if (!requirePagePermission("emergency_contacts:view")) throw "redirect";
+        buildSidebar("emergency.html");
+        const canManageContacts = can("emergency_contacts:manage");
+        if (!canManageContacts) {
+            document.getElementById("addContactBtn").style.display = "none";
+            document.getElementById("saveContactBtn").style.display = "none";
+        }
+
+        const serviceIcons = {
+            police: "🚔",
+            fire: "🚒",
+            medical: "🏥",
+            rescue: "🚁"
+        };
+
+        const serviceColors = {
+            police: "badge-medium",
+            fire: "badge-critical",
+            medical: "badge-low",
+            rescue: "badge-high"
+        };
+
+        function resetForm() {
+            document.getElementById("editId").value = "";
+            document.getElementById("name").value = "";
+            document.getElementById("phone").value = "";
+            document.getElementById("service_type").value = "police";
+            document.getElementById("city").value = "";
+            document.getElementById("modalTitle").textContent = "Add Emergency Contact";
+        }
+
+        async function loadContacts() {
+            const container = document.getElementById("contactList");
+            const city = document.getElementById("cityFilter").value.trim();
+            const query = city ? "?city=" + encodeURIComponent(city) : "";
+
+            try {
+                const contacts = await apiGet("/emergency-contacts" + query);
+
+                if (!contacts.length) {
+                    container.innerHTML = '<div class="empty-state"><div class="emoji">📞</div><p>No emergency contacts' + (city ? ' in ' + city : '') + '. Add one to get started.</p></div>';
+                    return;
+                }
+
+                // Group by service type
+                container.innerHTML = `
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Service</th><th>Name</th><th>Phone</th><th>City</th><th>Actions</th></tr></thead>
+            <tbody>
+              ${contacts.map(c => `
+                <tr>
+                  <td><span class="badge ${serviceColors[c.service_type] || 'badge-medium'}">${serviceIcons[c.service_type] || ""} ${c.service_type}</span></td>
+                  <td><strong>${c.name}</strong></td>
+                  <td style="font-family:monospace;font-size:.92rem">${c.phone}</td>
+                  <td>${c.city || "—"}</td>
+                  <td>${canManageContacts
+                        ? `<button class="btn btn-secondary btn-sm" onclick='editContact(${JSON.stringify(c)})'>✏️</button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteContact(${c.id})">🗑</button>`
+                        : '<span style="color:var(--text-muted)">Read only</span>'}
+                  </td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>`;
+            } catch (err) {
+                container.innerHTML = '<div class="empty-state"><div class="emoji">⚠</div><p>Failed to load contacts</p></div>';
+            }
+        }
+
+        function editContact(c) {
+            if (!canManageContacts) {
+                showToast("Access Denied", "Only admin can modify emergency contacts.");
+                return;
+            }
+            document.getElementById("editId").value = c.id;
+            document.getElementById("name").value = c.name;
+            document.getElementById("phone").value = c.phone;
+            document.getElementById("service_type").value = c.service_type;
+            document.getElementById("city").value = c.city || "";
+            document.getElementById("modalTitle").textContent = "Edit Contact";
+            openModal("contactModal");
+        }
+
+        async function saveContact() {
+            if (!canManageContacts) {
+                showToast("Access Denied", "Only admin can modify emergency contacts.");
+                return;
+            }
+            const id = document.getElementById("editId").value;
+            const body = {
+                name: document.getElementById("name").value.trim(),
+                phone: document.getElementById("phone").value.trim(),
+                service_type: document.getElementById("service_type").value,
+                city: document.getElementById("city").value.trim() || null,
+            };
+
+            if (!body.name || !body.phone || !body.service_type) {
+                showToast("⚠ Validation", "Name, phone, and service type are required");
+                return;
+            }
+
+            try {
+                if (id) {
+                    await apiPut("/emergency-contacts/" + id, body);
+                    showToast("✅ Updated", "Contact updated");
+                } else {
+                    await apiPost("/emergency-contacts", body);
+                    showToast("✅ Added", "Emergency contact added");
+                }
+                closeModal("contactModal");
+                loadContacts();
+            } catch (err) {
+                showToast("❌ Error", err.error || "Failed to save");
+            }
+        }
+
+        async function deleteContact(id) {
+            if (!canManageContacts) {
+                showToast("Access Denied", "Only admin can modify emergency contacts.");
+                return;
+            }
+            if (!confirm("Delete this contact?")) return;
+            try {
+                await apiDelete("/emergency-contacts/" + id);
+                showToast("🗑 Deleted", "Contact removed");
+                loadContacts();
+            } catch (err) {
+                showToast("❌ Error", err.error || "Failed to delete");
+            }
+        }
+
+        loadContacts();
+    </script>
+
+</body>
+
+</html>

@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emergency Requests — DisasterSAS</title>
+    <meta name="description"
+        content="Submit and manage emergency requests for food, water, medical help, and evacuation">
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+    <div class="main" id="mainContent">
+        <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
+            <div>
+                <h1>🆘 Emergency Requests</h1>
+                <p>Request food, water, medical help, or evacuation</p>
+            </div>
+            <button class="btn btn-primary" id="newRequestBtn" onclick="openModal('reqModal'); resetForm()">+ New Request</button>
+        </div>
+
+        <!-- Stats -->
+        <div class="stats-grid" id="reqStats">
+            <div class="stat-card warning">
+                <div class="stat-icon">⏳</div>
+                <div class="stat-value" id="pendingCount">—</div>
+                <div class="stat-label">Pending</div>
+            </div>
+            <div class="stat-card info">
+                <div class="stat-icon">🔄</div>
+                <div class="stat-value" id="progressCount">—</div>
+                <div class="stat-label">In Progress</div>
+            </div>
+            <div class="stat-card success">
+                <div class="stat-icon">✅</div>
+                <div class="stat-value" id="resolvedCount">—</div>
+                <div class="stat-label">Resolved</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">📋</div>
+                <div class="stat-value" id="totalCount">—</div>
+                <div class="stat-label">Total Requests</div>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="search-bar">
+            <select id="statusFilter" class="form-control" style="max-width:180px" onchange="loadRequests()">
+                <option value="">All Statuses</option>
+                <option value="pending">Pending</option>
+                <option value="in_progress">In Progress</option>
+                <option value="resolved">Resolved</option>
+            </select>
+            <select id="typeFilter" class="form-control" style="max-width:180px" onchange="loadRequests()">
+                <option value="">All Types</option>
+                <option value="food">🍽 Food</option>
+                <option value="water">💧 Water</option>
+                <option value="medical">🏥 Medical</option>
+                <option value="evacuation">🚁 Evacuation</option>
+            </select>
+        </div>
+
+        <div id="requestList">
+            <div class="loading-overlay"><span class="spinner"></span> Loading requests…</div>
+        </div>
+    </div>
+
+    <!-- Request Modal -->
+    <div class="modal-overlay" id="reqModal">
+        <div class="modal">
+            <h2 id="modalTitle">New Emergency Request</h2>
+            <input type="hidden" id="editId">
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="request_type">Request Type</label>
+                    <select id="request_type" class="form-control" required>
+                        <option value="food">🍽 Food</option>
+                        <option value="water">💧 Water</option>
+                        <option value="medical">🏥 Medical Help</option>
+                        <option value="evacuation">🚁 Evacuation</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="priority">Priority</label>
+                    <select id="priority" class="form-control">
+                        <option value="low">Low</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="high">High</option>
+                        <option value="critical">Critical</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="requester_name">Requester Name</label>
+                    <input type="text" id="requester_name" class="form-control" placeholder="Your name">
+                </div>
+                <div class="form-group">
+                    <label for="shelter_id">Shelter</label>
+                    <select id="shelter_id" class="form-control">
+                        <option value="">No specific shelter</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="latitude">Latitude (optional)</label>
+                    <input type="number" step="any" id="latitude" class="form-control" placeholder="17.3850">
+                </div>
+                <div class="form-group">
+                    <label for="longitude">Longitude (optional)</label>
+                    <input type="number" step="any" id="longitude" class="form-control" placeholder="78.4867">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="description">Description</label>
+                <textarea id="description" class="form-control"
+                    placeholder="Describe the emergency and what's needed…"></textarea>
+            </div>
+
+            <!-- Status fields (only for editing) -->
+            <div id="statusFields" style="display:none">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="status">Status</label>
+                        <select id="status" class="form-control">
+                            <option value="pending">Pending</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="resolved">Resolved</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="assigned_to">Assigned To</label>
+                        <input type="text" id="assigned_to" class="form-control" placeholder="Volunteer name">
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal('reqModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="saveRequest()">Submit</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+    <script>
+        if (!requireAnyPagePermission(["requests:view", "requests:create"])) throw "redirect";
+        buildSidebar("requests.html");
+        const canCreateRequests = can("requests:create");
+        const canViewRequests = can("requests:view");
+        const canManageRequests = can("requests:manage");
+        const canViewRequestStats = can("requests:stats");
+
+        if (!canCreateRequests) {
+            document.getElementById("newRequestBtn").style.display = "none";
+        }
+        if (!canViewRequests) {
+            document.getElementById("reqStats").style.display = "none";
+            const filterBar = document.querySelector(".search-bar");
+            if (filterBar) filterBar.style.display = "none";
+            document.getElementById("requestList").innerHTML = '<div class="empty-state"><div class="emoji">📝</div><p>You can submit new requests. Queue/status views are available to volunteers/admin.</p></div>';
+        }
+
+        const typeIcons = { food: "🍽", water: "💧", medical: "🏥", evacuation: "🚁" };
+        const statusBadges = {
+            pending: '<span class="badge badge-high">⏳ pending</span>',
+            in_progress: '<span class="badge badge-medium">🔄 in progress</span>',
+            resolved: '<span class="badge badge-low">✅ resolved</span>',
+        };
+
+        async function loadShelterOptions() {
+            try {
+                const shelters = await apiGet("/shelters");
+                const opts = shelters.map(s => `<option value="${s.id}">${s.name}</option>`).join("");
+                document.getElementById("shelter_id").innerHTML = '<option value="">No specific shelter</option>' + opts;
+            } catch (e) { }
+        }
+
+        function resetForm() {
+            document.getElementById("editId").value = "";
+            document.getElementById("request_type").value = "food";
+            document.getElementById("priority").value = "medium";
+            document.getElementById("requester_name").value = "";
+            document.getElementById("shelter_id").value = "";
+            document.getElementById("description").value = "";
+            document.getElementById("latitude").value = "";
+            document.getElementById("longitude").value = "";
+            document.getElementById("statusFields").style.display = "none";
+            document.getElementById("modalTitle").textContent = "New Emergency Request";
+        }
+
+        async function loadStats() {
+            if (!canViewRequestStats) return;
+            try {
+                const s = await apiGet("/emergency-requests/stats");
+                document.getElementById("pendingCount").textContent = s.pending;
+                document.getElementById("progressCount").textContent = s.in_progress;
+                document.getElementById("resolvedCount").textContent = s.resolved;
+                document.getElementById("totalCount").textContent = s.total;
+            } catch (e) { }
+        }
+
+        async function loadRequests() {
+            if (!canViewRequests) return;
+            const container = document.getElementById("requestList");
+            const status = document.getElementById("statusFilter").value;
+            const type = document.getElementById("typeFilter").value;
+
+            const params = [];
+            if (status) params.push("status=" + status);
+            if (type) params.push("type=" + type);
+            const query = params.length ? "?" + params.join("&") : "";
+
+            try {
+                const requests = await apiGet("/emergency-requests" + query);
+
+                if (!requests.length) {
+                    container.innerHTML = '<div class="empty-state"><div class="emoji">✅</div><p>No emergency requests found</p></div>';
+                    return;
+                }
+
+                container.innerHTML = `
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Type</th><th>Requester</th><th>Description</th><th>Severity</th><th>Priority</th><th>Status</th><th>Shelter</th><th>Allocation</th><th>Created</th><th>Actions</th></tr></thead>
+            <tbody>
+              ${requests.map(r => `
+                <tr>
+                  <td>${typeIcons[r.request_type] || ""} ${r.request_type}</td>
+                  <td><strong>${r.requester_name || "—"}</strong></td>
+                  <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.description || "—"}</td>
+                  <td><span class="badge badge-medium">${r.severity_score ?? 0}/100</span></td>
+                  <td>${severityBadge(r.priority)}</td>
+                  <td>${statusBadges[r.status] || r.status}</td>
+                  <td>${r.shelter_name || "—"}</td>
+                  <td>${r.allocation_status ? (r.allocation_status + (r.allocation_eta_minutes ? " · ETA " + r.allocation_eta_minutes + "m" : "")) : (r.assigned_to || "—")}</td>
+                  <td style="color:var(--text-muted);font-size:.82rem">${fmtDate(r.created_at)}</td>
+                  <td style="white-space:nowrap">
+                    ${canManageRequests
+                        ? `${r.status === "pending" ? `<button class="btn btn-success btn-sm" onclick="updateStatus(${r.id},'in_progress')">▶ Start</button>` : ""}
+                    ${r.status === "in_progress" ? `<button class="btn btn-success btn-sm" onclick="updateStatus(${r.id},'resolved')">✅ Resolve</button>` : ""}
+                    <button class="btn btn-secondary btn-sm" onclick='editRequest(${JSON.stringify(r)})'>✏️</button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteRequest(${r.id})">🗑</button>`
+                        : '<span style="color:var(--text-muted)">Read only</span>'}
+                  </td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>`;
+            } catch (err) {
+                container.innerHTML = '<div class="empty-state"><div class="emoji">⚠</div><p>Failed to load requests</p></div>';
+            }
+        }
+
+        function editRequest(r) {
+            if (!canManageRequests) {
+                showToast("Access Denied", "You cannot modify requests.");
+                return;
+            }
+            document.getElementById("editId").value = r.id;
+            document.getElementById("request_type").value = r.request_type;
+            document.getElementById("priority").value = r.priority;
+            document.getElementById("requester_name").value = r.requester_name || "";
+            document.getElementById("shelter_id").value = r.shelter_id || "";
+            document.getElementById("description").value = r.description || "";
+            document.getElementById("latitude").value = r.latitude || "";
+            document.getElementById("longitude").value = r.longitude || "";
+            document.getElementById("status").value = r.status;
+            document.getElementById("assigned_to").value = r.assigned_to || "";
+            document.getElementById("statusFields").style.display = "block";
+            document.getElementById("modalTitle").textContent = "Edit Request";
+            openModal("reqModal");
+        }
+
+        async function saveRequest() {
+            const id = document.getElementById("editId").value;
+            if (id && !canManageRequests) {
+                showToast("Access Denied", "You cannot modify requests.");
+                return;
+            }
+            if (!id && !canCreateRequests) {
+                showToast("Access Denied", "You cannot create requests.");
+                return;
+            }
+            const body = {
+                request_type: document.getElementById("request_type").value,
+                priority: document.getElementById("priority").value,
+                requester_name: document.getElementById("requester_name").value.trim() || null,
+                shelter_id: parseInt(document.getElementById("shelter_id").value) || null,
+                description: document.getElementById("description").value.trim() || null,
+                latitude: document.getElementById("latitude").value ? parseFloat(document.getElementById("latitude").value) : null,
+                longitude: document.getElementById("longitude").value ? parseFloat(document.getElementById("longitude").value) : null,
+            };
+
+            if (id) {
+                body.status = document.getElementById("status").value;
+                body.assigned_to = document.getElementById("assigned_to").value.trim() || null;
+            }
+
+            try {
+                if (id) {
+                    await apiPut("/emergency-requests/" + id, body);
+                    showToast("✅ Updated", "Request updated");
+                } else {
+                    await apiPost("/emergency-requests", body);
+                    showToast("✅ Submitted", "Emergency request submitted");
+                }
+                closeModal("reqModal");
+                loadRequests();
+                loadStats();
+            } catch (err) {
+                showToast("❌ Error", err.error || "Failed to save");
+            }
+        }
+
+        async function updateStatus(id, newStatus) {
+            if (!canManageRequests) {
+                showToast("Access Denied", "You cannot modify requests.");
+                return;
+            }
+            try {
+                await apiPut("/emergency-requests/" + id, { status: newStatus, assigned_to: getUsername() });
+                showToast("✅ Updated", `Request marked as ${newStatus.replace("_", " ")}`);
+                loadRequests();
+                loadStats();
+            } catch (err) {
+                showToast("❌ Error", err.error || "Failed to update");
+            }
+        }
+
+        async function deleteRequest(id) {
+            if (!canManageRequests) {
+                showToast("Access Denied", "You cannot delete requests.");
+                return;
+            }
+            if (!confirm("Delete this request?")) return;
+            try {
+                await apiDelete("/emergency-requests/" + id);
+                showToast("🗑 Deleted", "Request removed");
+                loadRequests();
+                loadStats();
+            } catch (err) {
+                showToast("❌ Error", err.error || "Failed to delete");
+            }
+        }
+
+        loadShelterOptions();
+        if (canViewRequestStats) loadStats();
+        if (canViewRequests) loadRequests();
+    </script>
+
+</body>
+
+</html>

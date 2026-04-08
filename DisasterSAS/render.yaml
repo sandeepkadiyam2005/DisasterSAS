@@ -1,0 +1,25 @@
+databases:
+  - name: disastersas-db
+    databaseName: disastersas
+    user: disastersas
+
+services:
+  - type: web
+    name: disastersas-web
+    env: python
+    rootDir: disaster_backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python run.py
+    healthCheckPath: /api/health
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URI
+        fromDatabase:
+          name: disastersas-db
+          property: connectionString
+      - key: UPLOAD_FOLDER
+        value: /opt/render/project/src/disaster_backend/uploads

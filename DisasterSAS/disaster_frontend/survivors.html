@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Survivors — DisasterSAS</title>
+    <meta name="description" content="Register and track disaster survivors at shelters">
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+    <div class="main" id="mainContent">
+        <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
+            <div>
+                <h1>🧑‍🤝‍🧑 Survivor Registration</h1>
+                <p>Register survivors arriving at shelters and track their status</p>
+            </div>
+            <button class="btn btn-primary" id="registerSurvivorBtn" onclick="openModal('survivorModal'); resetForm()">+ Register
+                Survivor</button>
+        </div>
+
+        <!-- Search & Filters -->
+        <div class="search-bar">
+            <input type="text" id="searchName" class="form-control" placeholder="🔍 Search survivor by name…"
+                style="max-width:280px">
+            <button class="btn btn-secondary" onclick="searchSurvivors()">Search</button>
+            <select id="shelterFilter" class="form-control" style="max-width:200px" onchange="loadSurvivors()">
+                <option value="">All Shelters</option>
+            </select>
+            <select id="healthFilter" class="form-control" style="max-width:160px" onchange="loadSurvivors()">
+                <option value="">All Health</option>
+                <option value="stable">Stable</option>
+                <option value="injured">Injured</option>
+                <option value="critical">Critical</option>
+            </select>
+        </div>
+
+        <div id="survivorList">
+            <div class="loading-overlay"><span class="spinner"></span> Loading survivors…</div>
+        </div>
+    </div>
+
+    <!-- Register Modal -->
+    <div class="modal-overlay" id="survivorModal">
+        <div class="modal">
+            <h2 id="modalTitle">Register Survivor</h2>
+            <input type="hidden" id="editId">
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="name">Full Name</label>
+                    <input type="text" id="name" class="form-control" placeholder="Survivor's name" required>
+                </div>
+                <div class="form-group">
+                    <label for="age">Age</label>
+                    <input type="number" id="age" class="form-control" placeholder="Age" min="0">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="gender">Gender</label>
+                    <select id="gender" class="form-control">
+                        <option value="">Select</option>
+                        <option value="male">Male</option>
+                        <option value="female">Female</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="contact">Contact</label>
+                    <input type="text" id="contact" class="form-control" placeholder="Phone number">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="health_status">Health Status</label>
+                    <select id="health_status" class="form-control">
+                        <option value="stable">✅ Stable</option>
+                        <option value="injured">🩹 Injured</option>
+                        <option value="critical">🚑 Critical</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="shelter_id">Assign to Shelter</label>
+                    <select id="shelter_id" class="form-control">
+                        <option value="">No Shelter</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="notes">Notes</label>
+                <textarea id="notes" class="form-control"
+                    placeholder="Medical conditions, special needs, or other notes…"></textarea>
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal('survivorModal')">Cancel</button>
+                <button class="btn btn-primary" id="saveSurvivorBtn" onclick="saveSurvivor()">Register</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+    <script>
+        if (!requirePagePermission("survivors:view")) throw "redirect";
+        buildSidebar("survivors.html");
+        const canManageSurvivors = can("survivors:manage");
+        if (!canManageSurvivors) {
+            document.getElementById("registerSurvivorBtn").style.display = "none";
+            document.getElementById("saveSurvivorBtn").style.display = "none";
+        }
+
+        const healthBadge = {
+            stable: '<span class="badge badge-low">✅ stable</span>',
+            injured: '<span class="badge badge-high">🩹 injured</span>',
+            critical: '<span class="badge badge-critical">🚑 critical</span>',
+        };
+
+        // Load shelters for dropdown
+        async function loadShelterOptions() {
+            try {
+                const shelters = await apiGet("/shelters");
+                const opts = shelters.map(s => `<option value="${s.id}">${s.name} (${s.current_occupancy}/${s.capacity})</option>`).join("");
+                document.getElementById("shelter_id").innerHTML = '<option value="">No Shelter</option>' + opts;
+                document.getElementById("shelterFilter").innerHTML = '<option value="">All Shelters</option>' + opts;
+            } catch (e) { }
+        }
+
+        function resetForm() {
+            document.getElementById("editId").value = "";
+            document.getElementById("name").value = "";
+            document.getElementById("age").value = "";
+            document.getElementById("gender").value = "";
+            document.getElementById("contact").value = "";
+            document.getElementById("health_status").value = "stable";
+            document.getElementById("shelter_id").value = "";
+            document.getElementById("notes").value = "";
+            document.getElementById("modalTitle").textContent = "Register Survivor";
+        }
+
+        async function loadSurvivors() {
+            const container = document.getElementById("survivorList");
+            const shelterId = document.getElementById("shelterFilter").value;
+            const health = document.getElementById("healthFilter").value;
+
+            let query = "";
+            const params = [];
+            if (shelterId) params.push("shelter_id=" + shelterId);
+            if (health) params.push("health_status=" + health);
+            if (params.length) query = "?" + params.join("&");
+
+            try {
+                const survivors = await apiGet("/survivors" + query);
+                renderTable(survivors);
+            } catch (err) {
+                container.innerHTML = '<div class="empty-state"><div class="emoji">⚠</div><p>Failed to load survivors</p></div>';
+            }
+        }
+
+        async function searchSurvivors() {
+            const name = document.getElementById("searchName").value.trim();
+            if (!name) { loadSurvivors(); return; }
+
+            const container = document.getElementById("survivorList");
+            try {
+                const survivors = await apiGet("/survivors/search?name=" + encodeURIComponent(name));
+                renderTable(survivors, `Search results for "${name}"`);
+            } catch (err) {
+                container.innerHTML = '<div class="empty-state"><div class="emoji">⚠</div><p>Search failed</p></div>';
+            }
+        }
+
+        function renderTable(survivors, subtitle) {
+            const container = document.getElementById("survivorList");
+
+            if (!survivors.length) {
+                container.innerHTML = '<div class="empty-state"><div class="emoji">🧑‍🤝‍🧑</div><p>No survivors found</p></div>';
+                return;
+            }
+
+            container.innerHTML = `
+      ${subtitle ? `<p style="color:var(--text-secondary);margin-bottom:12px;font-size:.85rem">${subtitle} — ${survivors.length} result(s)</p>` : ""}
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Name</th><th>Age</th><th>Gender</th><th>Health</th><th>Shelter</th><th>Registered By</th><th>Date</th><th>Actions</th></tr></thead>
+          <tbody>
+            ${survivors.map(s => `
+              <tr>
+                <td><strong>${s.name}</strong></td>
+                <td>${s.age || "—"}</td>
+                <td>${s.gender || "—"}</td>
+                <td>${healthBadge[s.health_status] || s.health_status}</td>
+                <td>${s.shelter_name || "—"}</td>
+                <td>${s.registered_by || "—"}</td>
+                <td style="color:var(--text-muted);font-size:.82rem">${fmtDate(s.registered_at)}</td>
+                <td style="white-space:nowrap">${canManageSurvivors
+                    ? `<button class="btn btn-secondary btn-sm" onclick='editSurvivor(${JSON.stringify(s)})'>✏️</button>
+                  <button class="btn btn-danger btn-sm" onclick="deleteSurvivor(${s.id})">🗑</button>`
+                    : '<span style="color:var(--text-muted)">Read only</span>'}
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>`;
+        }
+
+        function editSurvivor(s) {
+            if (!canManageSurvivors) {
+                showToast("Access Denied", "You cannot modify survivor records.");
+                return;
+            }
+            document.getElementById("editId").value = s.id;
+            document.getElementById("name").value = s.name;
+            document.getElementById("age").value = s.age || "";
+            document.getElementById("gender").value = s.gender || "";
+            document.getElementById("contact").value = s.contact || "";
+            document.getElementById("health_status").value = s.health_status;
+            document.getElementById("shelter_id").value = s.shelter_id || "";
+            document.getElementById("notes").value = s.notes || "";
+            document.getElementById("modalTitle").textContent = "Edit Survivor";
+            openModal("survivorModal");
+        }
+
+        async function saveSurvivor() {
+            if (!canManageSurvivors) {
+                showToast("Access Denied", "You cannot modify survivor records.");
+                return;
+            }
+            const id = document.getElementById("editId").value;
+            const body = {
+                name: document.getElementById("name").value.trim(),
+                age: parseInt(document.getElementById("age").value) || null,
+                gender: document.getElementById("gender").value || null,
+                contact: document.getElementById("contact").value.trim() || null,
+                health_status: document.getElementById("health_status").value,
+                shelter_id: parseInt(document.getElementById("shelter_id").value) || null,
+                registered_by: getUsername(),
+                notes: document.getElementById("notes").value.trim() || null
+            };
+
+            if (!body.name) {
+                showToast("⚠ Validation", "Name is required");
+                return;
+            }
+
+            try {
+                if (id) {
+                    await apiPut("/survivors/" + id, body);
+                    showToast("✅ Updated", "Survivor record updated");
+                } else {
+                    await apiPost("/survivors", body);
+                    showToast("✅ Registered", "Survivor registered at shelter");
+                }
+                closeModal("survivorModal");
+                loadSurvivors();
+                loadShelterOptions();
+            } catch (err) {
+                showToast("❌ Error", err.error || "Failed to save");
+            }
+        }
+
+        async function deleteSurvivor(id) {
+            if (!canManageSurvivors) {
+                showToast("Access Denied", "You cannot modify survivor records.");
+                return;
+            }
+            if (!confirm("Remove this survivor record?")) return;
+            try {
+                await apiDelete("/survivors/" + id);
+                showToast("🗑 Removed", "Survivor record removed");
+                loadSurvivors();
+                loadShelterOptions();
+            } catch (err) {
+                showToast("❌ Error", err.error || "Failed to delete");
+            }
+        }
+
+        loadShelterOptions();
+        loadSurvivors();
+    </script>
+
+</body>
+
+</html>

@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Disaster Alert Map</title>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css">
+
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+        }
+
+        #controls {
+            text-align: center;
+            padding: 10px;
+            background: #1a1a2e;
+            color: white;
+        }
+
+        #controls h2 {
+            margin: 5px 0;
+        }
+
+        .toggle-btn {
+            padding: 8px 20px;
+            margin: 5px 8px;
+            border: 2px solid #ccc;
+            border-radius: 20px;
+            background: transparent;
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .toggle-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .toggle-btn.active-alerts {
+            background: #e74c3c;
+            border-color: #e74c3c;
+            color: white;
+        }
+
+        .toggle-btn.active-shelters {
+            background: #27ae60;
+            border-color: #27ae60;
+            color: white;
+        }
+
+        #map {
+            height: 88vh;
+        }
+    </style>
+
+</head>
+
+<body>
+
+    <div id="controls">
+        <h2>🗺 Live Disaster Alert Map</h2>
+        <button class="toggle-btn active-alerts" id="alertsBtn" onclick="toggleAlerts()">🔴 Disaster Alerts</button>
+        <button class="toggle-btn" id="sheltersBtn" onclick="toggleShelters()">🟢 Shelters</button>
+    </div>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
+
+    <script>
+
+        var map = L.map('map').setView([20.5937, 78.9629], 5);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: 'OpenStreetMap'
+        }).addTo(map);
+
+
+        /* Layer Groups */
+        var alertMarkers = L.markerClusterGroup();
+        var shelterMarkers = L.layerGroup();
+
+        map.addLayer(alertMarkers);
+        // shelterMarkers NOT added yet — only when user clicks the button
+
+
+        /* Alert Icons */
+        var heatIcon = new L.Icon({
+            iconUrl: "https://maps.google.com/mapfiles/ms/icons/red-dot.png",
+            iconSize: [32, 32]
+        });
+
+        var stormIcon = new L.Icon({
+            iconUrl: "https://maps.google.com/mapfiles/ms/icons/purple-dot.png",
+            iconSize: [32, 32]
+        });
+
+        var rainIcon = new L.Icon({
+            iconUrl: "https://maps.google.com/mapfiles/ms/icons/blue-dot.png",
+            iconSize: [32, 32]
+        });
+
+        var floodIcon = new L.Icon({
+            iconUrl: "https://maps.google.com/mapfiles/ms/icons/yellow-dot.png",
+            iconSize: [32, 32]
+        });
+
+        var shelterIcon = new L.Icon({
+            iconUrl: "https://maps.google.com/mapfiles/ms/icons/green-dot.png",
+            iconSize: [32, 32]
+        });
+
+
+        /* State */
+        var showAlerts = true;
+        var showShelters = false;
+
+
+        /* ── Load Disaster Alerts ─────────────────────── */
+        function loadAlerts() {
+            alertMarkers.clearLayers();
+
+            fetch("/alerts/recent")
+                .then(res => res.json())
+                .then(data => {
+
+                    data.forEach(alert => {
+
+                        fetch(`https://nominatim.openstreetmap.org/search?city=${alert.city}&format=json`)
+                            .then(res => res.json())
+                            .then(location => {
+
+                                if (location.length > 0) {
+                                    let lat = location[0].lat;
+                                    let lon = location[0].lon;
+
+                                    let icon = heatIcon;
+                                    if (alert.alert.includes("Storm")) icon = stormIcon;
+                                    else if (alert.alert.includes("Rain")) icon = rainIcon;
+                                    else if (alert.alert.includes("Flood")) icon = floodIcon;
+                                    else if (alert.alert.includes("Heatwave")) icon = heatIcon;
+
+                                    let marker = L.marker([lat, lon], { icon: icon })
+                                        .bindPopup(
+                                            `<b>${alert.city}</b><br>
+                            Alert: ${alert.alert}<br>
+                            Temp: ${alert.temperature}°C<br>
+                            Wind: ${alert.wind_speed} m/s`
+                                        );
+
+                                    alertMarkers.addLayer(marker);
+                                }
+                            });
+                    });
+                });
+        }
+
+
+        /* ── Load Shelters ────────────────────────────── */
+        function loadShelters() {
+            shelterMarkers.clearLayers();
+
+            fetch("/shelters")
+                .then(res => res.json())
+                .then(data => {
+
+                    data.forEach(shelter => {
+
+                        if (shelter.latitude && shelter.longitude) {
+                            // Use stored coordinates
+                            addShelterMarker(shelter, shelter.latitude, shelter.longitude);
+                        } else if (shelter.location) {
+                            // Fallback: geocode the text location
+                            fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(shelter.location)}&format=json`)
+                                .then(res => res.json())
+                                .then(loc => {
+                                    if (loc.length > 0) {
+                                        addShelterMarker(shelter, loc[0].lat, loc[0].lon);
+                                    }
+                                });
+                        }
+                    });
+                });
+        }
+
+        function addShelterMarker(shelter, lat, lon) {
+            let spotsLeft = shelter.capacity - shelter.current_occupancy;
+            let statusColor = shelter.status === "open" ? "green" : shelter.status === "full" ? "orange" : "red";
+
+            let marker = L.marker([lat, lon], { icon: shelterIcon })
+                .bindPopup(
+                    `<b>🏠 ${shelter.name}</b><br>
+            📍 ${shelter.location}<br>
+            📊 Status: <span style="color:${statusColor};font-weight:bold">${shelter.status.toUpperCase()}</span><br>
+            👥 Occupancy: ${shelter.current_occupancy} / ${shelter.capacity}<br>
+            🪑 Spots Left: ${spotsLeft}<br>
+            📞 Contact: ${shelter.contact || "N/A"}`
+                );
+
+            shelterMarkers.addLayer(marker);
+        }
+
+
+        /* ── Toggle Buttons ───────────────────────────── */
+        function toggleAlerts() {
+            showAlerts = !showAlerts;
+            var btn = document.getElementById("alertsBtn");
+
+            if (showAlerts) {
+                map.addLayer(alertMarkers);
+                btn.classList.add("active-alerts");
+            } else {
+                map.removeLayer(alertMarkers);
+                btn.classList.remove("active-alerts");
+            }
+        }
+
+        function toggleShelters() {
+            showShelters = !showShelters;
+            var btn = document.getElementById("sheltersBtn");
+
+            if (showShelters) {
+                loadShelters();
+                map.addLayer(shelterMarkers);
+                btn.classList.add("active-shelters");
+            } else {
+                map.removeLayer(shelterMarkers);
+                btn.classList.remove("active-shelters");
+            }
+        }
+
+
+        /* ── First Load ───────────────────────────────── */
+        loadAlerts();
+
+        /* Auto refresh alerts every 30 seconds */
+        setInterval(loadAlerts, 30000);
+
+    </script>
+
+</body>
+
+</html>

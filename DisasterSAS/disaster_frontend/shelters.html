@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shelters — DisasterSAS</title>
+    <meta name="description" content="Manage emergency shelters, find nearest shelter, track capacity">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        .shelter-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .shelter-header-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .picker-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            margin: 6px 0 8px;
+            flex-wrap: wrap;
+        }
+
+        .picker-note {
+            font-size: .78rem;
+            color: var(--text-secondary);
+        }
+
+        .picker-map {
+            height: 240px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            overflow: hidden;
+            background: #0f172a;
+        }
+
+        .picker-coords {
+            margin-top: 8px;
+            font-size: .78rem;
+            color: var(--text-secondary);
+        }
+
+        .shelter-actions {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .shelter-actions .btn {
+            min-width: 64px;
+        }
+
+        @media (max-width: 768px) {
+            .shelter-header-actions {
+                width: 100%;
+            }
+
+            .shelter-header-actions .btn {
+                flex: 1 1 calc(50% - 6px);
+            }
+
+            .picker-map {
+                height: 200px;
+            }
+
+            .shelter-actions {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(72px, 1fr));
+                gap: 6px;
+            }
+
+            .shelter-actions .btn {
+                width: 100%;
+                min-width: 0;
+            }
+        }
+
+        @media (max-width: 560px) {
+            .hide-xs {
+                display: none;
+            }
+
+            .shelter-header-actions .btn {
+                flex: 1 1 100%;
+            }
+
+            .picker-actions {
+                align-items: stretch;
+            }
+
+            .picker-note,
+            .picker-actions .btn {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="main" id="mainContent">
+        <div class="page-header shelter-header">
+            <div>
+                <h1>🏠 Shelters Management</h1>
+                <p>Track shelters, capacity, occupancy, and find nearest shelter</p>
+            </div>
+            <div class="shelter-header-actions">
+                <button class="btn btn-secondary" onclick="findNearest()" id="nearestBtn">📍 Find Nearest</button>
+                <button class="btn btn-primary" id="addShelterBtn" onclick="openAddShelterModal()">+ Add Shelter</button>
+            </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="stats-grid" id="shelterStats">
+            <div class="stat-card success">
+                <div class="stat-icon">🏠</div>
+                <div class="stat-value" id="totalS">—</div>
+                <div class="stat-label">Total Shelters</div>
+            </div>
+            <div class="stat-card info">
+                <div class="stat-icon">🟢</div>
+                <div class="stat-value" id="openS">—</div>
+                <div class="stat-label">Open</div>
+            </div>
+            <div class="stat-card warning">
+                <div class="stat-icon">🟡</div>
+                <div class="stat-value" id="fullS">—</div>
+                <div class="stat-label">Full</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">🛏</div>
+                <div class="stat-value" id="availBeds">—</div>
+                <div class="stat-label">Available Beds</div>
+            </div>
+        </div>
+
+        <!-- Filter -->
+        <div class="search-bar" style="margin-bottom:20px">
+            <select id="statusFilter" class="form-control" style="max-width:200px" onchange="loadShelters()">
+                <option value="">All Statuses</option>
+                <option value="open">Open</option>
+                <option value="full">Full</option>
+                <option value="closed">Closed</option>
+            </select>
+        </div>
+
+        <!-- Nearest Shelter Results -->
+        <div id="nearestResults" style="display:none;margin-bottom:24px">
+            <div class="card" style="border-left:4px solid var(--success)">
+                <h3 style="margin-bottom:12px;font-weight:700;color:var(--success)">📍 Nearest Shelters</h3>
+                <div id="nearestList"></div>
+            </div>
+        </div>
+
+        <div id="sheltersList">
+            <div class="loading-overlay"><span class="spinner"></span> Loading shelters…</div>
+        </div>
+    </div>
+
+    <!-- Modal -->
+    <div class="modal-overlay" id="shelterModal">
+        <div class="modal">
+            <h2 id="modalTitle">Add Shelter</h2>
+            <input type="hidden" id="editId">
+
+            <div class="form-group">
+                <label for="name">Shelter Name</label>
+                <input type="text" id="name" class="form-control" placeholder="e.g. City Hall Relief Camp" required>
+            </div>
+
+            <div class="form-group">
+                <label for="location">Location</label>
+                <input type="text" id="location" class="form-control" placeholder="Full address or area name" required>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="latitude">Latitude</label>
+                    <input type="number" step="any" id="latitude" class="form-control" placeholder="e.g. 19.076" required>
+                </div>
+                <div class="form-group">
+                    <label for="longitude">Longitude</label>
+                    <input type="number" step="any" id="longitude" class="form-control" placeholder="e.g. 72.877" required>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Select Location On Map</label>
+                <div class="picker-actions">
+                    <span class="picker-note">Click the map to auto-fill latitude and longitude.</span>
+                    <button class="btn btn-secondary btn-sm" type="button" onclick="pickCurrentLocation()">Use My Location</button>
+                </div>
+                <div class="picker-actions">
+                    <input type="text" id="shelterCityInput" class="form-control" list="shelterCityList" placeholder="Enter city name" style="max-width:220px">
+                    <button class="btn btn-secondary btn-sm" type="button" onclick="applyShelterCityLocation()">Use City</button>
+                </div>
+                <datalist id="shelterCityList" data-disaster-city-list></datalist>
+                <div id="shelterPickerMap" class="picker-map"></div>
+                <div id="pickerCoords" class="picker-coords">No point selected yet.</div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="capacity">Capacity</label>
+                    <input type="number" id="capacity" class="form-control" value="0" min="0">
+                </div>
+                <div class="form-group">
+                    <label for="occupancy">Current Occupancy</label>
+                    <input type="number" id="occupancy" class="form-control" value="0" min="0">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="contact">Contact</label>
+                    <input type="text" id="contact" class="form-control" placeholder="Phone number">
+                </div>
+                <div class="form-group">
+                    <label for="status">Status</label>
+                    <select id="status" class="form-control">
+                        <option value="open">Open</option>
+                        <option value="full">Full</option>
+                        <option value="closed">Closed</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal('shelterModal')">Cancel</button>
+                <button class="btn btn-primary" id="saveShelterBtn" onclick="saveShelter()">Save Shelter</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+    <script>
+        if (!requirePagePermission("shelters:view")) throw "redirect";
+        buildSidebar("shelters.html");
+        const canManageShelters = can("shelters:manage");
+        const shelterLocationGate = window.DisasterLocation?.createLookupGate ? DisasterLocation.createLookupGate() : {
+            begin: () => true,
+            end: () => {},
+            isBusy: () => false
+        };
+        if (!canManageShelters) {
+            document.getElementById("addShelterBtn").style.display = "none";
+            document.getElementById("saveShelterBtn").style.display = "none";
+        }
+        const DEFAULT_PICKER_CENTER = [20.5937, 78.9629];
+        let shelterPickerMap = null;
+        let shelterPickerMarker = null;
+
+        function updatePickerCoordsText(lat, lng) {
+            const el = document.getElementById("pickerCoords");
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+                el.textContent = "No point selected yet.";
+                return;
+            }
+            el.textContent = `Selected: ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+        }
+
+        function ensurePickerMap() {
+            if (shelterPickerMap) return true;
+            if (!window.L) {
+                updatePickerCoordsText(NaN, NaN);
+                document.getElementById("pickerCoords").textContent = "Map library failed to load. You can still type coordinates manually.";
+                return false;
+            }
+
+            shelterPickerMap = L.map("shelterPickerMap", {
+                zoomControl: true,
+                attributionControl: true
+            }).setView(DEFAULT_PICKER_CENTER, 5);
+
+            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                maxZoom: 19,
+                attribution: "&copy; OpenStreetMap"
+            }).addTo(shelterPickerMap);
+
+            shelterPickerMap.on("click", (e) => {
+                setPickerPoint(e.latlng.lat, e.latlng.lng, false);
+            });
+            return true;
+        }
+
+        function setPickerPoint(lat, lng, panToPoint = true) {
+            const safeLat = Number(lat);
+            const safeLng = Number(lng);
+            if (!Number.isFinite(safeLat) || !Number.isFinite(safeLng)) return;
+
+            document.getElementById("latitude").value = safeLat.toFixed(6);
+            document.getElementById("longitude").value = safeLng.toFixed(6);
+            updatePickerCoordsText(safeLat, safeLng);
+
+            if (!ensurePickerMap()) return;
+            if (!shelterPickerMarker) {
+                shelterPickerMarker = L.marker([safeLat, safeLng]).addTo(shelterPickerMap);
+            } else {
+                shelterPickerMarker.setLatLng([safeLat, safeLng]);
+            }
+
+            if (panToPoint) {
+                const zoom = Math.max(shelterPickerMap.getZoom(), 14);
+                shelterPickerMap.setView([safeLat, safeLng], zoom);
+            }
+        }
+
+        function clearPickerPoint() {
+            updatePickerCoordsText(NaN, NaN);
+            if (shelterPickerMap && shelterPickerMarker) {
+                shelterPickerMap.removeLayer(shelterPickerMarker);
+                shelterPickerMarker = null;
+            }
+        }
+
+        function syncPickerFromInputs() {
+            const lat = parseFloat(document.getElementById("latitude").value);
+            const lng = parseFloat(document.getElementById("longitude").value);
+            if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                setPickerPoint(lat, lng, true);
+            } else {
+                clearPickerPoint();
+            }
+        }
+
+        function preparePickerAfterModalOpen() {
+            if (!ensurePickerMap()) return;
+            setTimeout(() => {
+                shelterPickerMap.invalidateSize();
+                syncPickerFromInputs();
+            }, 60);
+        }
+
+        function openAddShelterModal() {
+            if (!canManageShelters) {
+                showToast("Access Denied", "Only admin can modify shelters.");
+                return;
+            }
+            resetForm();
+            openModal("shelterModal");
+            preparePickerAfterModalOpen();
+        }
+
+        function pickCurrentLocation() {
+            if (shelterLocationGate.isBusy()) return;
+            shelterLocationGate.begin();
+            if (!navigator.geolocation) {
+                showToast("⚠ Error", "Geolocation is not supported by your browser");
+                shelterLocationGate.end();
+                return;
+            }
+
+            DisasterLocation.requestPrecisePosition({ timeout: 10000, maximumAge: 0 }).then((pos) => {
+                setPickerPoint(pos.coords.latitude, pos.coords.longitude, true);
+                const accuracy = DisasterLocation.formatLocationAccuracy(pos.coords.accuracy);
+                showToast("📍 Location Set", accuracy
+                    ? `Coordinates selected from your current location (${accuracy})`
+                    : "Coordinates selected from your current location");
+                if (DisasterLocation.isLowLocationAccuracy(pos.coords.accuracy)) {
+                    showToast("⚠ Accuracy", "GPS accuracy is weak. You can use a city name or pick the map point manually.");
+                }
+            }).catch(() => {
+                showToast("⚠ Error", "Unable to get your current location");
+            }).finally(() => {
+                shelterLocationGate.end();
+            });
+        }
+
+        function applyShelterCityLocation() {
+            const input = document.getElementById("shelterCityInput");
+            const cityName = String(input?.value || "").trim();
+            if (!cityName) {
+                showToast("⚠ Error", "Enter a city name first.");
+                return;
+            }
+
+            const city = DisasterLocation.resolveCity(cityName);
+            if (!city) {
+                showToast("⚠ Error", "Unsupported city. Try Hyderabad, Mumbai, Delhi, Bengaluru, Chennai, or another supported city.");
+                return;
+            }
+
+            document.getElementById("location").value = city.name;
+            setPickerPoint(city.lat, city.lng, true);
+            showToast("📍 Location Set", `Coordinates selected for ${city.name}.`);
+        }
+
+        function resetForm() {
+            document.getElementById("editId").value = "";
+            document.getElementById("name").value = "";
+            document.getElementById("location").value = "";
+            document.getElementById("latitude").value = "";
+            document.getElementById("longitude").value = "";
+            document.getElementById("capacity").value = "0";
+            document.getElementById("occupancy").value = "0";
+            document.getElementById("contact").value = "";
+            document.getElementById("status").value = "open";
+            document.getElementById("modalTitle").textContent = "Add Shelter";
+            clearPickerPoint();
+        }
+
+        async function loadStats() {
+            try {
+                const s = await apiGet("/shelters/stats");
+                document.getElementById("totalS").textContent = s.total_shelters;
+                document.getElementById("openS").textContent = s.open;
+                document.getElementById("fullS").textContent = s.full;
+                document.getElementById("availBeds").textContent = s.available_beds;
+            } catch (e) { }
+        }
+
+        async function loadShelters() {
+            const container = document.getElementById("sheltersList");
+            const status = document.getElementById("statusFilter").value;
+            const query = status ? "?status=" + status : "";
+
+            try {
+                const shelters = await apiGet("/shelters" + query);
+
+                if (!shelters.length) {
+                    container.innerHTML = '<div class="empty-state"><div class="emoji">🏠</div><p>No shelters found. Add one to get started.</p></div>';
+                    return;
+                }
+
+                container.innerHTML = `
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Location</th><th>Capacity</th><th>Occupancy</th><th>Available</th><th>Status</th><th class="hide-xs">Contact</th><th>Actions</th></tr></thead>
+            <tbody>
+              ${shelters.map(s => {
+                    const avail = s.capacity - s.current_occupancy;
+                    const pct = s.capacity > 0 ? Math.round((s.current_occupancy / s.capacity) * 100) : 0;
+                    const currentStatus = (s.status || "open").toLowerCase();
+                    return `
+                <tr>
+                  <td><strong>${s.name}</strong></td>
+                  <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.location}</td>
+                  <td>${s.capacity}</td>
+                  <td>
+                    ${s.current_occupancy}/${s.capacity}
+                    <div style="background:rgba(255,255,255,.06);border-radius:4px;height:4px;margin-top:4px;width:100px">
+                      <div style="background:${pct > 80 ? 'var(--danger)' : pct > 50 ? 'var(--warning)' : 'var(--success)'};height:100%;border-radius:4px;width:${pct}%"></div>
+                    </div>
+                  </td>
+                  <td style="font-weight:700;color:${avail > 0 ? 'var(--success)' : 'var(--danger)'}">${avail}</td>
+                  <td>${severityBadge(s.status)}</td>
+                  <td class="hide-xs">${s.contact || "—"}</td>
+                  <td>${canManageShelters
+                        ? `<div class="shelter-actions">
+                      <button class="btn btn-secondary btn-sm" onclick='editShelter(${JSON.stringify(s)})'>✏️</button>
+                      <button class="btn btn-danger btn-sm" onclick="deleteShelter(${s.id})">🗑</button>
+                      <button class="btn btn-success btn-sm" onclick="quickSetStatus(${s.id}, 'open')" ${currentStatus === "open" ? "disabled" : ""}>Open</button>
+                      <button class="btn btn-secondary btn-sm" onclick="quickSetStatus(${s.id}, 'full')" ${currentStatus === "full" ? "disabled" : ""}>Full</button>
+                      <button class="btn btn-danger btn-sm" onclick="quickSetStatus(${s.id}, 'closed')" ${currentStatus === "closed" ? "disabled" : ""}>Closed</button>
+                    </div>`
+                        : '<span style="color:var(--text-muted)">Read only</span>'}
+                  </td>
+                </tr>`;
+                }).join("")}
+            </tbody>
+          </table>
+        </div>`;
+            } catch (err) {
+                container.innerHTML = '<div class="empty-state"><div class="emoji">⚠</div><p>Failed to load shelters</p></div>';
+            }
+        }
+
+        function findNearest() {
+            const btn = document.getElementById("nearestBtn");
+            if (shelterLocationGate.isBusy()) return;
+            shelterLocationGate.begin();
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Locating…';
+
+            if (!navigator.geolocation) {
+                showToast("⚠ Error", "Geolocation is not supported by your browser");
+                btn.disabled = false;
+                btn.innerHTML = "📍 Find Nearest";
+                shelterLocationGate.end();
+                return;
+            }
+
+            DisasterLocation.requestPrecisePosition({ timeout: 12000, maximumAge: 0 }).then(async (pos) => {
+                try {
+                    const lat = pos.coords.latitude;
+                    const lng = pos.coords.longitude;
+                    const accuracy = DisasterLocation.formatLocationAccuracy(pos.coords.accuracy);
+                    const results = await apiGet(`/shelters/nearest?lat=${lat}&lng=${lng}`);
+
+                    const section = document.getElementById("nearestResults");
+                    const list = document.getElementById("nearestList");
+
+                    if (!results.length) {
+                        list.innerHTML = "<p>No open shelters with coordinates found</p>";
+                    } else {
+                        list.innerHTML = `
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Name</th><th>Location</th><th>Distance</th><th>Available Beds</th><th>Contact</th></tr></thead>
+                <tbody>
+                  ${results.slice(0, 5).map(s => `
+                    <tr>
+                      <td><strong>${s.name}</strong></td>
+                      <td>${s.location}</td>
+                      <td style="font-weight:700;color:var(--accent)">${s.distance_km} km</td>
+                      <td style="font-weight:700;color:${s.available_beds > 0 ? 'var(--success)' : 'var(--danger)'}">${s.available_beds}</td>
+                      <td>${s.contact || "—"}</td>
+                    </tr>
+                  `).join("")}
+                </tbody>
+              </table>
+            </div>`;
+                    }
+
+                    section.style.display = "block";
+                    if (accuracy) {
+                        showToast("📍 Location Set", `${accuracy}. Nearby shelters updated.`);
+                    }
+                    if (DisasterLocation.isLowLocationAccuracy(pos.coords.accuracy)) {
+                        showToast("⚠ Accuracy", "GPS accuracy is weak. Verify the nearest shelter results on the map.");
+                    }
+                } catch (err) {
+                    showToast("❌ Error", "Failed to find nearest shelters");
+                }
+
+                btn.disabled = false;
+                btn.innerHTML = "📍 Find Nearest";
+                shelterLocationGate.end();
+            }).catch(() => {
+                showToast("⚠ Error", "Location access denied");
+                btn.disabled = false;
+                btn.innerHTML = "📍 Find Nearest";
+                shelterLocationGate.end();
+            });
+        }
+
+        function editShelter(s) {
+            if (!canManageShelters) {
+                showToast("Access Denied", "Only admin can modify shelters.");
+                return;
+            }
+            document.getElementById("editId").value = s.id;
+            document.getElementById("name").value = s.name;
+            document.getElementById("location").value = s.location;
+            document.getElementById("latitude").value = s.latitude ?? "";
+            document.getElementById("longitude").value = s.longitude ?? "";
+            document.getElementById("capacity").value = s.capacity;
+            document.getElementById("occupancy").value = s.current_occupancy;
+            document.getElementById("contact").value = s.contact || "";
+            document.getElementById("status").value = s.status;
+            document.getElementById("modalTitle").textContent = "Edit Shelter";
+            openModal("shelterModal");
+            preparePickerAfterModalOpen();
+        }
+
+        async function quickSetStatus(id, status) {
+            if (!canManageShelters) {
+                showToast("Access Denied", "Only admin can modify shelters.");
+                return;
+            }
+            try {
+                await apiPut("/shelters/" + id, { status });
+                showToast("✅ Status Updated", `Shelter marked as ${status.toUpperCase()}`);
+                await loadShelters();
+                await loadStats();
+            } catch (err) {
+                showToast("❌ Error", err.error || "Failed to update shelter status");
+            }
+        }
+
+        async function saveShelter() {
+            if (!canManageShelters) {
+                showToast("Access Denied", "Only admin can modify shelters.");
+                return;
+            }
+            const id = document.getElementById("editId").value;
+            const name = document.getElementById("name").value.trim();
+            const location = document.getElementById("location").value.trim();
+            const latitude = Number.parseFloat(document.getElementById("latitude").value);
+            const longitude = Number.parseFloat(document.getElementById("longitude").value);
+
+            if (!name || !location) {
+                showToast("⚠ Validation", "Name and location are required");
+                return;
+            }
+
+            if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+                showToast("⚠ Validation", "Select shelter location on map or enter valid latitude/longitude");
+                return;
+            }
+
+            if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+                showToast("⚠ Validation", "Latitude/longitude values are out of range");
+                return;
+            }
+
+            const body = {
+                name,
+                location,
+                latitude,
+                longitude,
+                capacity: parseInt(document.getElementById("capacity").value) || 0,
+                current_occupancy: parseInt(document.getElementById("occupancy").value) || 0,
+                contact: document.getElementById("contact").value.trim() || null,
+                status: document.getElementById("status").value
+            };
+
+            try {
+                if (id) {
+                    await apiPut("/shelters/" + id, body);
+                    showToast("✅ Updated", "Shelter updated");
+                } else {
+                    await apiPost("/shelters", body);
+                    showToast("✅ Added", "New shelter added");
+                }
+                closeModal("shelterModal");
+                loadShelters();
+                loadStats();
+            } catch (err) {
+                showToast("❌ Error", err.error || "Failed to save");
+            }
+        }
+
+        async function deleteShelter(id) {
+            if (!canManageShelters) {
+                showToast("Access Denied", "Only admin can modify shelters.");
+                return;
+            }
+            if (!confirm("Delete this shelter?")) return;
+            try {
+                await apiDelete("/shelters/" + id);
+                showToast("🗑 Deleted", "Shelter removed");
+                loadShelters();
+                loadStats();
+            } catch (err) {
+                showToast("❌ Error", err.error || "Failed to delete");
+            }
+        }
+
+        document.getElementById("latitude").addEventListener("change", syncPickerFromInputs);
+        document.getElementById("longitude").addEventListener("change", syncPickerFromInputs);
+
+        loadStats();
+        loadShelters();
+    </script>
+
+</body>
+
+</html>

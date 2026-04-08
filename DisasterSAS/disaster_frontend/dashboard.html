@@ -1,0 +1,1443 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard — DisasterSAS</title>
+    <meta name="description" content="DisasterSAS Dashboard — Real-time disaster monitoring statistics">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+</head>
+
+<body>
+
+    <div class="main dashboard-enhanced" id="mainContent">
+        <div class="page-header dashboard-page-header">
+            <h1>Dashboard</h1>
+            <p id="pageSubtitle">Real-time disaster monitoring overview — all modules at a glance</p>
+        </div>
+
+        <div class="card dashboard-hero" id="dashboardHero">
+            <div class="dashboard-hero-main">
+                <div class="dashboard-hero-kicker">Live Coordination Center</div>
+                <h2>Command Overview</h2>
+                <p id="dashboardHeroText">Resource readiness, alerts, shelters, and emergency workload in one place.</p>
+            </div>
+            <div class="dashboard-hero-meta">
+                <div class="dashboard-chip"><span class="token">AL</span><strong>Alert Watch</strong></div>
+                <div class="dashboard-chip"><span class="token">RS</span><strong>Rescue Flow</strong></div>
+                <div class="dashboard-chip"><span class="token">SH</span><strong>Shelter Capacity</strong></div>
+            </div>
+        </div>
+
+        <div class="card dashboard-weather-card" id="currentWeatherCard">
+            <div class="dashboard-weather-head">
+                <div>
+                    <div class="dashboard-hero-kicker">Current Weather</div>
+                    <h3 id="currentWeatherTitle">Loading local conditions...</h3>
+                    <p id="currentWeatherSubtitle">We will use your saved city first, then your location if you choose to refresh it.</p>
+                </div>
+                <div class="dashboard-weather-actions">
+                    <button class="btn btn-secondary btn-sm" onclick="loadCurrentWeather(true)">Use My Location</button>
+                    <button class="btn btn-secondary btn-sm" onclick="loadCurrentWeather(false)">Refresh</button>
+                </div>
+            </div>
+            <div id="currentWeatherAlert"></div>
+            <div class="stats-grid dashboard-weather-grid" id="currentWeatherGrid">
+                <div class="stat-card dashboard-weather-placeholder">
+                    <div class="stat-icon mono">TMP</div>
+                    <div class="stat-value">--</div>
+                    <div class="stat-label">Temperature</div>
+                </div>
+                <div class="stat-card dashboard-weather-placeholder">
+                    <div class="stat-icon mono">WND</div>
+                    <div class="stat-value">--</div>
+                    <div class="stat-label">Wind</div>
+                </div>
+                <div class="stat-card dashboard-weather-placeholder">
+                    <div class="stat-icon mono">HUM</div>
+                    <div class="stat-value">--</div>
+                    <div class="stat-label">Humidity</div>
+                </div>
+                <div class="stat-card dashboard-weather-placeholder">
+                    <div class="stat-icon mono">VIS</div>
+                    <div class="stat-value">--</div>
+                    <div class="stat-label">Visibility</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card dashboard-sos">
+            <div>
+                <h3>Emergency Rescue</h3>
+                <p>One tap to call rescue contact and log critical evacuation request.</p>
+            </div>
+            <button class="btn btn-danger" id="rescueBtn" onclick="triggerEmergencyRescue()">
+                Call Rescue Now
+            </button>
+        </div>
+
+        <!-- Disaster Alert Stats -->
+        <h3 id="alertStatsHeading" class="dashboard-section-title">Disaster Alerts</h3>
+        <div class="stats-grid dashboard-stat-grid" id="alertStats">
+            <div class="stat-card dashboard-stat danger">
+                <div class="stat-icon mono">HW</div>
+                <div class="stat-value" id="heatwaves">—</div>
+                <div class="stat-label">Heatwave Alerts</div>
+            </div>
+            <div class="stat-card dashboard-stat info">
+                <div class="stat-icon mono">ST</div>
+                <div class="stat-value" id="storms">—</div>
+                <div class="stat-label">Storm Alerts</div>
+            </div>
+            <div class="stat-card dashboard-stat">
+                <div class="stat-icon mono">RN</div>
+                <div class="stat-value" id="rains">—</div>
+                <div class="stat-label">Rain Alerts</div>
+            </div>
+            <div class="stat-card dashboard-stat warning">
+                <div class="stat-icon mono">FL</div>
+                <div class="stat-value" id="floods">—</div>
+                <div class="stat-label">Flood Risks</div>
+            </div>
+        </div>
+
+        <!-- Shelter & People Stats -->
+        <h3 id="shelterPeopleHeading" class="dashboard-section-title">Shelters & People</h3>
+        <div class="stats-grid dashboard-stat-grid" id="shelterPeopleStats">
+            <div class="stat-card dashboard-stat success">
+                <div class="stat-icon mono">SH</div>
+                <div class="stat-value" id="totalShelters">—</div>
+                <div class="stat-label">Total Shelters</div>
+            </div>
+            <div class="stat-card dashboard-stat info">
+                <div class="stat-icon mono">BD</div>
+                <div class="stat-value" id="availableBeds">—</div>
+                <div class="stat-label">Available Beds</div>
+            </div>
+            <div class="stat-card dashboard-stat">
+                <div class="stat-icon mono">SV</div>
+                <div class="stat-value" id="totalSurvivors">—</div>
+                <div class="stat-label">Registered Survivors</div>
+            </div>
+            <div class="stat-card dashboard-stat warning">
+                <div class="stat-icon mono">VL</div>
+                <div class="stat-value" id="totalVolunteers">—</div>
+                <div class="stat-label">Volunteers</div>
+            </div>
+        </div>
+
+        <!-- Emergency Request Stats -->
+        <h3 id="emergencyReqHeading" class="dashboard-section-title">Emergency Requests</h3>
+        <div class="stats-grid dashboard-stat-grid" id="emergencyReqStats">
+            <div class="stat-card dashboard-stat warning">
+                <div class="stat-icon mono">PN</div>
+                <div class="stat-value" id="pendingReqs">—</div>
+                <div class="stat-label">Pending Requests</div>
+            </div>
+            <div class="stat-card dashboard-stat info">
+                <div class="stat-icon mono">IP</div>
+                <div class="stat-value" id="progressReqs">—</div>
+                <div class="stat-label">In Progress</div>
+            </div>
+            <div class="stat-card dashboard-stat success">
+                <div class="stat-icon mono">RS</div>
+                <div class="stat-value" id="resolvedReqs">—</div>
+                <div class="stat-label">Resolved</div>
+            </div>
+            <div class="stat-card dashboard-stat">
+                <div class="stat-icon mono">RC</div>
+                <div class="stat-value" id="totalRecords">—</div>
+                <div class="stat-label">Total Weather Records</div>
+            </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="dashboard-charts" id="chartsRow">
+            <div class="card dashboard-chart-card">
+                <h3>Alert Distribution</h3>
+                <div class="chart-container" id="alertChart"></div>
+            </div>
+            <div class="card dashboard-chart-card">
+                <h3>Emergency Requests</h3>
+                <div class="chart-container" id="reqChart"></div>
+            </div>
+        </div>
+
+        <!-- Recent Alerts -->
+        <div class="card dashboard-alerts-card" id="recentAlertsCard">
+            <h3 id="recentAlertsTitle">Recent Disaster Alerts</h3>
+            <div id="recentAlerts">
+                <div class="loading-overlay"><span class="spinner"></span> Loading alerts…</div>
+            </div>
+        </div>
+
+        <div class="card dashboard-public-card" id="publicMapCard" style="display:none">
+            <h3>Shelter & Missing People Map</h3>
+            <p class="dashboard-public-note">Shelter markers show open/full/closed status. Missing markers are plotted near known shelter coordinates in the same city when available.</p>
+            <div class="map-controls dashboard-map-controls">
+                <button class="btn btn-secondary btn-sm" onclick="detectPublicLocation()">📍 Use My Location</button>
+                <button class="btn btn-primary btn-sm" onclick="routeToNearestOpenShelter()">🧭 Route Nearest Open Shelter</button>
+                <button class="btn btn-secondary btn-sm" onclick="clearPublicRoute()">Clear Route</button>
+                <button class="btn btn-secondary btn-sm" data-offline-download onclick="downloadPublicOfflineMapArea()" title="Save map tiles around your current location for offline access">📥 Download Offline Map</button>
+                <input id="publicCityInput" class="form-control" list="publicCityList" placeholder="Enter city" style="min-width:160px;max-width:220px">
+                <datalist id="publicCityList" data-disaster-city-list></datalist>
+                <button class="btn btn-secondary btn-sm" onclick="applyPublicCityLocation()">Use City</button>
+            </div>
+            <div id="publicSafetyMap" class="dashboard-map-surface"></div>
+        </div>
+
+        <div class="card dashboard-public-card" id="publicShelterCard" style="display:none">
+            <h3>Shelter Details (Open / Full / Closed)</h3>
+            <div id="publicShelterDetails">
+                <div class="loading-overlay"><span class="spinner"></span> Loading shelters…</div>
+            </div>
+        </div>
+
+        <div class="card dashboard-public-card" id="publicMissingCard" style="display:none">
+            <h3>Active Missing People</h3>
+            <div id="publicMissingList">
+                <div class="loading-overlay"><span class="spinner"></span> Loading missing people…</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="app.js"></script>
+    <script>
+        if (!requirePagePermission("dashboard:view")) throw "redirect";
+        buildSidebar("dashboard.html");
+        initSocket();
+        const isPublicUser = normalizeRole(getRole()) === "public";
+        const canViewSurvivorStats = can("survivors:view");
+        const canViewVolunteerStats = can("volunteers:view");
+        const canViewRequestStatsBlock = can("requests:stats");
+        let publicSafetyMap = null;
+        let publicShelterMarkers = [];
+        let publicMissingMarkers = [];
+        let publicUserMarker = null;
+        let publicRouteLine = null;
+        let publicCurrentLocation = null;
+        let publicLocationAccuracyMeters = null;
+        let publicFallbackLocationLabel = "";
+        let publicShelterCache = [];
+        let mapTileServiceWorkerReady = false;
+        let publicTileDownloadInProgress = false;
+        let publicTileDownloadResolve = null;
+        let publicTileDownloadReject = null;
+        let publicTileDbPromise = null;
+        const publicLocationGate = window.DisasterLocation?.createLookupGate ? DisasterLocation.createLookupGate() : {
+            begin: () => true,
+            end: () => {},
+            isBusy: () => false
+        };
+        const OFFLINE_TILE_PACKS_KEY = "disaster_offline_tile_packs_v1";
+        const TILE_DB_NAME = "disaster_tile_db_v1";
+        const TILE_DB_STORE = "tiles";
+        const OFFLINE_TILE_ZOOMS = [12, 13, 14, 15];
+        const ONLINE_TILE_SOURCES = [
+            {
+                name: "Carto Voyager",
+                url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+                options: {
+                    crossOrigin: "anonymous",
+                    referrerPolicy: "strict-origin-when-cross-origin",
+                    maxZoom: 19,
+                    subdomains: "abcd",
+                    attribution: "&copy; OpenStreetMap contributors &copy; CARTO"
+                }
+            },
+            {
+                name: "Esri WorldStreetMap",
+                url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+                options: {
+                    crossOrigin: "anonymous",
+                    referrerPolicy: "strict-origin-when-cross-origin",
+                    maxZoom: 19,
+                    attribution: "Tiles &copy; Esri"
+                }
+            },
+            {
+                name: "OpenStreetMap",
+                url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+                options: {
+                    crossOrigin: "anonymous",
+                    referrerPolicy: "strict-origin-when-cross-origin",
+                    maxZoom: 19,
+                    attribution: "&copy; OpenStreetMap contributors"
+                }
+            }
+        ];
+        let publicOfflineTilePacks = loadOfflineTilePacks();
+
+        function getDashboardWeatherFallbackCity() {
+            const stored = getStoredWeatherContext();
+            if (stored && typeof stored.city === "string") {
+                const city = stored.city.trim();
+                if (city) return city;
+            }
+            return "Hyderabad";
+        }
+
+        function resolveWeatherCityFromLocation(lat, lng) {
+            const resolved = DisasterLocation?.nearestCity ? DisasterLocation.nearestCity(lat, lng) : null;
+            return resolved && resolved.name ? resolved.name : "";
+        }
+
+        function weatherAlertTone(alertText) {
+            const normalized = String(alertText || "").toLowerCase();
+            if (normalized.includes("heatwave") || normalized.includes("storm") || normalized.includes("flood")) {
+                return "danger";
+            }
+            if (normalized && normalized !== "no severe weather conditions.") {
+                return "warning";
+            }
+            return "safe";
+        }
+
+        function deriveWeatherAlert(weatherData) {
+            const temperature = Number(weatherData?.temperature);
+            const humidity = Number(weatherData?.humidity);
+            const windSpeed = Number(weatherData?.wind_speed);
+            const description = String(weatherData?.weather || "").toLowerCase();
+
+            if (Number.isFinite(temperature) && temperature > 45) return "🔥 Heatwave Warning!";
+            if (Number.isFinite(windSpeed) && windSpeed > 15) return "🌪 Storm Warning!";
+            if (description.includes("rain")) return "🌧 Heavy Rain Alert!";
+            if (Number.isFinite(humidity) && humidity > 85) return "⚠ Flood Risk Alert!";
+            return "No severe weather conditions.";
+        }
+
+        function setCurrentWeatherLoading(message) {
+            const title = document.getElementById("currentWeatherTitle");
+            const subtitle = document.getElementById("currentWeatherSubtitle");
+            const alertBox = document.getElementById("currentWeatherAlert");
+            const grid = document.getElementById("currentWeatherGrid");
+
+            if (title) title.textContent = "Loading current weather...";
+            if (subtitle) subtitle.textContent = message || "Fetching local conditions...";
+            if (alertBox) {
+                alertBox.innerHTML = '<div class="dashboard-weather-note">Checking the latest weather snapshot...</div>';
+            }
+            if (grid) {
+                grid.innerHTML = `
+                    <div class="stat-card dashboard-weather-placeholder">
+                        <div class="stat-icon mono">TMP</div>
+                        <div class="stat-value">--</div>
+                        <div class="stat-label">Temperature</div>
+                    </div>
+                    <div class="stat-card dashboard-weather-placeholder">
+                        <div class="stat-icon mono">WND</div>
+                        <div class="stat-value">--</div>
+                        <div class="stat-label">Wind</div>
+                    </div>
+                    <div class="stat-card dashboard-weather-placeholder">
+                        <div class="stat-icon mono">HUM</div>
+                        <div class="stat-value">--</div>
+                        <div class="stat-label">Humidity</div>
+                    </div>
+                    <div class="stat-card dashboard-weather-placeholder">
+                        <div class="stat-icon mono">VIS</div>
+                        <div class="stat-value">--</div>
+                        <div class="stat-label">Visibility</div>
+                    </div>
+                `;
+            }
+        }
+
+        function renderCurrentWeatherCard(city, weatherData, reportData, sourceLabel) {
+            const title = document.getElementById("currentWeatherTitle");
+            const subtitle = document.getElementById("currentWeatherSubtitle");
+            const alertBox = document.getElementById("currentWeatherAlert");
+            const grid = document.getElementById("currentWeatherGrid");
+            if (!title || !subtitle || !alertBox || !grid) return;
+
+            const report = reportData && reportData.report ? reportData.report : null;
+            const metrics = report && report.metrics ? report.metrics : {};
+            const today = reportData && reportData.today_details ? reportData.today_details : null;
+            const feelsLike = Number.isFinite(Number(today?.feels_like_c))
+                ? `${Math.round(Number(today.feels_like_c))}°C`
+                : `${Math.round(Number(weatherData.temperature || 0))}°C`;
+            const updatedAt = report && report.generated_at
+                ? new Date(report.generated_at).toLocaleString("en-IN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "short" })
+                : new Date().toLocaleString("en-IN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "short" });
+            const alertText = String(deriveWeatherAlert(weatherData)).trim();
+            const alertTone = weatherAlertTone(alertText);
+
+            title.textContent = `${city} • ${Math.round(Number(weatherData.temperature || 0))}°C`;
+            subtitle.textContent = `${weatherData.weather || "Conditions unavailable"} • Feels like ${feelsLike} • ${sourceLabel} • Updated ${updatedAt}`;
+
+            alertBox.innerHTML = alertText && alertText !== "No severe weather conditions."
+                ? `<div class="dashboard-weather-alert ${alertTone}">${alertText}</div>`
+                : '<div class="dashboard-weather-note">No severe weather conditions detected right now.</div>';
+
+            grid.innerHTML = [
+                `<div class="stat-card info"><div class="stat-icon mono">TMP</div><div class="stat-value">${Math.round(Number(weatherData.temperature || 0))}&deg;C</div><div class="stat-label">Current Temperature</div></div>`,
+                `<div class="stat-card success"><div class="stat-icon mono">HUM</div><div class="stat-value">${Number.isFinite(Number(weatherData.humidity)) ? `${Math.round(Number(weatherData.humidity))}%` : "--"}</div><div class="stat-label">Humidity</div></div>`,
+                `<div class="stat-card warning"><div class="stat-icon mono">WND</div><div class="stat-value">${Number.isFinite(Number(weatherData.wind_speed)) ? `${Number(weatherData.wind_speed).toFixed(1)} m/s` : "--"}</div><div class="stat-label">Wind Speed</div></div>`,
+                `<div class="stat-card"><div class="stat-icon mono">UV</div><div class="stat-value">${Number.isFinite(Number(metrics.uv_index)) ? Number(metrics.uv_index).toFixed(1) : "--"}</div><div class="stat-label">UV Index</div></div>`,
+                `<div class="stat-card"><div class="stat-icon mono">VIS</div><div class="stat-value">${Number.isFinite(Number(metrics.visibility_km)) ? `${metrics.visibility_km} km` : "--"}</div><div class="stat-label">Visibility</div></div>`,
+                `<div class="stat-card"><div class="stat-icon mono">PRS</div><div class="stat-value">${Number.isFinite(Number(metrics.pressure_hpa)) ? `${metrics.pressure_hpa} hPa` : "--"}</div><div class="stat-label">Pressure</div></div>`
+            ].join("");
+        }
+
+        async function loadCurrentWeather(useLocation = false) {
+            setCurrentWeatherLoading(useLocation
+                ? "Using your location to detect the nearest city..."
+                : "Using your last saved city or the app fallback city...");
+
+            let city = getDashboardWeatherFallbackCity();
+            let sourceLabel = city === "Hyderabad"
+                ? "using the app fallback city"
+                : "using your saved city";
+
+            if (useLocation && DisasterLocation?.requestPrecisePosition) {
+                try {
+                    const pos = await DisasterLocation.requestPrecisePosition({ timeout: 12000, maximumAge: 0 });
+                    const nearest = resolveWeatherCityFromLocation(pos.coords.latitude, pos.coords.longitude);
+                    if (nearest) {
+                        city = nearest;
+                        const accuracy = DisasterLocation.formatLocationAccuracy(pos.coords.accuracy);
+                        sourceLabel = accuracy
+                            ? `using your location near ${nearest} (${accuracy})`
+                            : `using your location near ${nearest}`;
+                    }
+                } catch {
+                    sourceLabel = city === "Hyderabad"
+                        ? "using the app fallback city"
+                        : "using your saved city";
+                }
+            }
+
+            const resolvedCity = DisasterLocation?.resolveCity?.(city)?.name || city;
+
+            try {
+                const reportData = await apiGet(`/weather/report?city=${encodeURIComponent(resolvedCity)}`);
+                const weatherData = reportData && reportData.snapshot
+                    ? reportData.snapshot
+                    : { city: resolvedCity, temperature: 0, humidity: 0, wind_speed: 0, weather: "Conditions unavailable" };
+                renderCurrentWeatherCard(weatherData.city || resolvedCity, weatherData, reportData, sourceLabel);
+                applyWeatherTheme(weatherData, reportData);
+            } catch (err) {
+                try {
+                    const fallbackWeather = await apiGet(`/weather?city=${encodeURIComponent(resolvedCity)}`);
+                    const weatherData = {
+                        city: fallbackWeather.city || resolvedCity,
+                        temperature: fallbackWeather.temperature,
+                        humidity: fallbackWeather.humidity,
+                        wind_speed: fallbackWeather.wind_speed,
+                        weather: fallbackWeather.weather
+                    };
+                    renderCurrentWeatherCard(weatherData.city || resolvedCity, weatherData, { snapshot: weatherData }, "fallback snapshot");
+                    applyWeatherTheme(weatherData, { snapshot: weatherData });
+                } catch (fallbackErr) {
+                    const title = document.getElementById("currentWeatherTitle");
+                    const subtitle = document.getElementById("currentWeatherSubtitle");
+                    const alertBox = document.getElementById("currentWeatherAlert");
+                    const grid = document.getElementById("currentWeatherGrid");
+                    if (title) title.textContent = "Weather unavailable";
+                    if (subtitle) subtitle.textContent = fallbackErr.error || err.error || "Unable to load the current weather snapshot right now.";
+                    if (alertBox) {
+                        alertBox.innerHTML = '<div class="dashboard-weather-note">Try refreshing after enabling weather access.</div>';
+                    }
+                    if (grid) {
+                        grid.innerHTML = '<div class="empty-state"><p>Current weather details are unavailable.</p></div>';
+                    }
+                }
+            }
+        }
+
+        function applyPublicDashboardMode() {
+            if (isPublicUser) {
+                const subtitle = document.getElementById("pageSubtitle");
+                if (subtitle) {
+                    subtitle.textContent = "Emergency access with today's disaster alerts.";
+                }
+                const heroText = document.getElementById("dashboardHeroText");
+                if (heroText) {
+                    heroText.textContent = "Public safety mode with shelter routing, missing-person updates, and today's active alerts.";
+                }
+                const title = document.getElementById("recentAlertsTitle");
+                if (title) {
+                    title.textContent = "Today's Disaster Alerts";
+                }
+                const hideIds = [
+                    "alertStatsHeading",
+                    "alertStats",
+                    "shelterPeopleHeading",
+                    "shelterPeopleStats",
+                    "emergencyReqHeading",
+                    "emergencyReqStats",
+                    "chartsRow"
+                ];
+                hideIds.forEach((id) => {
+                    const el = document.getElementById(id);
+                    if (el) el.style.display = "none";
+                });
+            }
+            ["publicMapCard", "publicShelterCard", "publicMissingCard"].forEach((id) => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = "block";
+            });
+            updatePublicOfflineDownloadAvailability();
+        }
+        applyPublicDashboardMode();
+        loadCurrentWeather(false);
+
+        function normalizeDialPhone(raw) {
+            const val = String(raw || "").trim();
+            if (!val) return "";
+            return val.replace(/[^\d+]/g, "");
+        }
+
+        function contactPriorityScore(serviceType) {
+            const val = String(serviceType || "").toLowerCase();
+            if (val === "rescue") return 1;
+            if (val === "medical") return 2;
+            if (val === "fire") return 3;
+            if (val === "police") return 4;
+            return 99;
+        }
+
+        async function triggerEmergencyRescue() {
+            const btn = document.getElementById("rescueBtn");
+            if (!btn) return;
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Connecting…';
+
+            try {
+                const contacts = await apiGet("/emergency-contacts");
+                if (!Array.isArray(contacts) || contacts.length === 0) {
+                    showToast("No Contacts", "No emergency contacts found. Please add rescue contact first.");
+                    window.location.href = "emergency.html";
+                    return;
+                }
+
+                const sorted = [...contacts].sort((a, b) =>
+                    contactPriorityScore(a.service_type) - contactPriorityScore(b.service_type)
+                );
+                const chosen = sorted[0];
+                const phone = normalizeDialPhone(chosen.phone);
+                if (!phone) {
+                    showToast("Invalid Number", "Selected contact has no valid phone number.");
+                    window.location.href = "emergency.html";
+                    return;
+                }
+
+                try {
+                    await apiPost("/emergency-requests", {
+                        request_type: "evacuation",
+                        priority: "critical",
+                        requester_name: getUsername() || "dashboard-user",
+                        description: `SOS button pressed from dashboard. Assigned contact: ${chosen.name} (${chosen.service_type}).`,
+                    });
+                } catch (e) { }
+
+                showToast("Rescue Call", `Calling ${chosen.name} (${chosen.service_type})`);
+                window.location.href = `tel:${phone}`;
+            } catch (err) {
+                showToast("Error", err.error || "Failed to trigger emergency rescue call");
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = "Call Rescue Now";
+            }
+        }
+
+        function renderDonutChart(containerId, labels, values, colors) {
+            const total = values.reduce((sum, value) => sum + value, 0);
+            const container = document.getElementById(containerId);
+            if (!container) return;
+
+            if (total <= 0) {
+                container.innerHTML = '<div class="empty-state"><p>No data available</p></div>';
+                return;
+            }
+
+            let angle = -Math.PI / 2;
+            const center = 90;
+            const radius = 74;
+            const strokeWidth = 24;
+            const circles = values.map((value, i) => {
+                const part = value / total;
+                const start = angle;
+                const end = angle + (part * Math.PI * 2);
+                angle = end;
+
+                const x1 = center + radius * Math.cos(start);
+                const y1 = center + radius * Math.sin(start);
+                const x2 = center + radius * Math.cos(end);
+                const y2 = center + radius * Math.sin(end);
+                const largeArcFlag = end - start > Math.PI ? 1 : 0;
+
+                return `<path d="M ${x1} ${y1} A ${radius} ${radius} 0 ${largeArcFlag} 1 ${x2} ${y2}"
+                             stroke="${colors[i]}" stroke-width="${strokeWidth}" fill="none" stroke-linecap="round"></path>`;
+            }).join("");
+
+            const legend = labels.map((label, i) => {
+                return `<div class="chart-legend-item">
+                    <span class="swatch" style="background:${colors[i]}"></span>
+                    <span>${label}</span>
+                    <strong>${values[i]}</strong>
+                </div>`;
+            }).join("");
+
+            container.innerHTML = `
+                <div class="chart-visual">
+                    <svg viewBox="0 0 180 180" role="img" aria-label="${containerId} chart">
+                        ${circles}
+                        <circle cx="${center}" cy="${center}" r="46" fill="var(--bg-card)"></circle>
+                        <text x="${center}" y="${center - 4}" text-anchor="middle" fill="var(--text-secondary)" font-size="12">Total</text>
+                        <text x="${center}" y="${center + 16}" text-anchor="middle" fill="var(--text-primary)" font-size="18" font-weight="700">${total}</text>
+                    </svg>
+                </div>
+                <div class="chart-legend">${legend}</div>
+            `;
+        }
+
+        function statusColor(status) {
+            const key = String(status || "").toLowerCase();
+            if (key === "open") return "#10b981";
+            if (key === "full") return "#f59e0b";
+            if (key === "closed") return "#ef4444";
+            return "#60a5fa";
+        }
+
+        function inferCityFromShelter(shelter) {
+            const parts = String(shelter.location || "")
+                .split(",")
+                .map((part) => part.trim())
+                .filter(Boolean);
+            if (!parts.length) return "";
+            return parts[parts.length - 1].toLowerCase();
+        }
+
+        function haversineKm(lat1, lon1, lat2, lon2) {
+            const toRad = (v) => v * Math.PI / 180;
+            const dLat = toRad(lat2 - lat1);
+            const dLon = toRad(lon2 - lon1);
+            const a = Math.sin(dLat / 2) ** 2
+                + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+            return 6371 * 2 * Math.asin(Math.sqrt(a));
+        }
+
+        async function fetchRoadRoute(startLat, startLng, endLat, endLng) {
+            const route = await apiPost("/map/route", {
+                start: { lat: Number(startLat), lng: Number(startLng) },
+                end: { lat: Number(endLat), lng: Number(endLng) },
+                preferred_profiles: ["driving", "foot"]
+            }, { silentForbidden: true });
+
+            const coordinates = Array.isArray(route?.geometry) ? route.geometry : [];
+            if (!coordinates.length) throw new Error("No route geometry found");
+            const latLngs = coordinates.map((pair) => [Number(pair[1]), Number(pair[0])]);
+            const isDirectFallback = String(route?.profile || "").toLowerCase() === "direct"
+                || String(route?.mode || "").toLowerCase().includes("offline");
+
+            if (isDirectFallback && latLngs.length >= 2) {
+                const distanceKm = Number(route?.distance || 0) / 1000 || haversineKm(startLat, startLng, endLat, endLng);
+                const durationMin = Number(route?.duration || 0) / 60 || Math.max(1, Math.round((distanceKm / 4.5) * 60));
+                return {
+                    latLngs,
+                    distanceKm,
+                    durationMin,
+                    source: "offline",
+                };
+            }
+
+            try {
+                return {
+                    latLngs,
+                    distanceKm: Number(route?.distance || 0) / 1000,
+                    durationMin: Number(route?.duration || 0) / 60,
+                    source: "road"
+                };
+            } finally {
+                // no-op
+            }
+        }
+
+        function clearPublicRoute() {
+            if (publicRouteLine) {
+                publicRouteLine.remove();
+                publicRouteLine = null;
+            }
+        }
+
+        function loadOfflineTilePacks() {
+            try {
+                const raw = localStorage.getItem(OFFLINE_TILE_PACKS_KEY);
+                if (!raw) return [];
+                const parsed = JSON.parse(raw);
+                if (!Array.isArray(parsed)) return [];
+                return parsed
+                    .map((pack) => ({
+                        center: {
+                            lat: Number(pack?.center?.lat),
+                            lng: Number(pack?.center?.lng),
+                        },
+                        radiusKm: Number(pack?.radiusKm),
+                        downloadedAt: Number(pack?.downloadedAt) || Date.now(),
+                    }))
+                    .filter((pack) =>
+                        Number.isFinite(pack.center.lat)
+                        && Number.isFinite(pack.center.lng)
+                        && Number.isFinite(pack.radiusKm)
+                        && pack.radiusKm > 0
+                    );
+            } catch {
+                return [];
+            }
+        }
+
+        function persistOfflineTilePacks() {
+            try {
+                localStorage.setItem(OFFLINE_TILE_PACKS_KEY, JSON.stringify(publicOfflineTilePacks.slice(-12)));
+            } catch {
+                // best-effort metadata write
+            }
+        }
+
+        function rememberOfflineTilePack(centerLat, centerLng, radiusKm) {
+            if (!Number.isFinite(centerLat) || !Number.isFinite(centerLng) || !Number.isFinite(radiusKm)) return;
+            publicOfflineTilePacks.push({
+                center: { lat: Number(centerLat), lng: Number(centerLng) },
+                radiusKm: Number(radiusKm),
+                downloadedAt: Date.now(),
+            });
+            persistOfflineTilePacks();
+        }
+
+        function openTileDatabase() {
+            if (!("indexedDB" in window)) return Promise.resolve(null);
+            if (publicTileDbPromise) return publicTileDbPromise;
+
+            publicTileDbPromise = new Promise((resolve, reject) => {
+                const request = indexedDB.open(TILE_DB_NAME, 1);
+                request.onupgradeneeded = () => {
+                    const db = request.result;
+                    if (!db.objectStoreNames.contains(TILE_DB_STORE)) {
+                        db.createObjectStore(TILE_DB_STORE);
+                    }
+                };
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error || new Error("IndexedDB open failed"));
+            }).catch(() => null);
+
+            return publicTileDbPromise;
+        }
+
+        async function putIndexedDbTile(url, blob) {
+            if (!url || !(blob instanceof Blob)) return false;
+            const db = await openTileDatabase();
+            if (!db) return false;
+
+            return new Promise((resolve) => {
+                try {
+                    const tx = db.transaction(TILE_DB_STORE, "readwrite");
+                    const store = tx.objectStore(TILE_DB_STORE);
+                    store.put({ blob, savedAt: Date.now() }, url);
+                    tx.oncomplete = () => resolve(true);
+                    tx.onerror = () => resolve(false);
+                } catch {
+                    resolve(false);
+                }
+            });
+        }
+
+        function normalizeLongitude(lng) {
+            const value = Number(lng);
+            if (!Number.isFinite(value)) return 0;
+            return ((value + 180) % 360 + 360) % 360 - 180;
+        }
+
+        function clampLatitude(lat) {
+            const value = Number(lat);
+            if (!Number.isFinite(value)) return 0;
+            return Math.min(85.05112878, Math.max(-85.05112878, value));
+        }
+
+        function latLngToTileXY(lat, lng, zoom) {
+            const z = Math.max(0, Number(zoom) || 0);
+            const n = 2 ** z;
+            const x = Math.floor(((normalizeLongitude(lng) + 180) / 360) * n);
+            const latRad = clampLatitude(lat) * Math.PI / 180;
+            const y = Math.floor(
+                (1 - Math.log(Math.tan(latRad) + (1 / Math.cos(latRad))) / Math.PI) / 2 * n
+            );
+            return {
+                x: Math.min(n - 1, Math.max(0, x)),
+                y: Math.min(n - 1, Math.max(0, y)),
+            };
+        }
+
+        function tileUrlFromSource(source, z, x, y) {
+            if (!source || !source.url) return "";
+            let subdomain = "";
+            if (source.options && source.options.subdomains) {
+                const subs = String(source.options.subdomains).split("");
+                subdomain = subs[(x + y) % subs.length] || "";
+            }
+            return source.url
+                .replace("{s}", subdomain)
+                .replace("{z}", String(z))
+                .replace("{x}", String(x))
+                .replace("{y}", String(y))
+                .replace("{r}", "");
+        }
+
+        function buildOfflineTileUrls(centerLat, centerLng, radiusKm) {
+            const latPad = radiusKm / 111.32;
+            const lngPad = radiusKm / (111.32 * Math.max(0.2, Math.cos(centerLat * Math.PI / 180)));
+            const minLat = clampLatitude(centerLat - latPad);
+            const maxLat = clampLatitude(centerLat + latPad);
+            const minLng = normalizeLongitude(centerLng - lngPad);
+            const maxLng = normalizeLongitude(centerLng + lngPad);
+
+            const primarySource = ONLINE_TILE_SOURCES[0];
+            const fallbackSource = ONLINE_TILE_SOURCES[ONLINE_TILE_SOURCES.length - 1];
+            const urls = new Set();
+
+            for (const z of OFFLINE_TILE_ZOOMS) {
+                const nw = latLngToTileXY(maxLat, minLng, z);
+                const se = latLngToTileXY(minLat, maxLng, z);
+                const xMin = Math.min(nw.x, se.x);
+                const xMax = Math.max(nw.x, se.x);
+                const yMin = Math.min(nw.y, se.y);
+                const yMax = Math.max(nw.y, se.y);
+
+                for (let x = xMin; x <= xMax; x += 1) {
+                    for (let y = yMin; y <= yMax; y += 1) {
+                        const primary = tileUrlFromSource(primarySource, z, x, y);
+                        if (primary) urls.add(primary);
+                        const backup = tileUrlFromSource(fallbackSource, z, x, y);
+                        if (backup) urls.add(backup);
+                    }
+                }
+            }
+
+            return [...urls];
+        }
+
+        function onMapTileServiceWorkerMessage(event) {
+            const data = event.data || {};
+            if (data.type === "TILE_DOWNLOAD_PROGRESS") {
+                const doneCount = Number(data.completed || 0) + Number(data.failed || 0);
+                const total = Number(data.total || 0);
+                showToast("Offline Download", `Downloading tiles: ${doneCount}/${total}`);
+            } else if (data.type === "TILE_DOWNLOAD_DONE") {
+                const completed = Number(data.completed || 0);
+                const failed = Number(data.failed || 0);
+                const total = Number(data.total || 0);
+                publicTileDownloadInProgress = false;
+                if (publicTileDownloadResolve) {
+                    publicTileDownloadResolve({ completed, failed, total });
+                    publicTileDownloadResolve = null;
+                    publicTileDownloadReject = null;
+                }
+                if (completed > 0) {
+                    showToast("Offline Map Ready", `${completed}/${total} tiles saved${failed ? ` (${failed} failed)` : ""}.`);
+                } else {
+                    showToast("Offline Map Failed", "No map tiles could be downloaded.");
+                }
+            }
+        }
+
+        async function ensureMapTileServiceWorker() {
+            if (mapTileServiceWorkerReady) return true;
+            if (!("serviceWorker" in navigator)) return false;
+            if (window.location.protocol === "file:") return false;
+            try {
+                await navigator.serviceWorker.register("./map-sw.js");
+                await navigator.serviceWorker.ready;
+                navigator.serviceWorker.addEventListener("message", onMapTileServiceWorkerMessage);
+                mapTileServiceWorkerReady = true;
+                updatePublicOfflineDownloadAvailability();
+                return true;
+            } catch (err) {
+                return false;
+            }
+        }
+
+        function setPublicCurrentLocation(lat, lng) {
+            if (!ensurePublicMap()) return;
+            const coords = [Number(lat), Number(lng)];
+            if (!Number.isFinite(coords[0]) || !Number.isFinite(coords[1])) return;
+            publicCurrentLocation = { lat: coords[0], lng: coords[1] };
+
+            if (!publicUserMarker) {
+                publicUserMarker = L.circleMarker(coords, {
+                    radius: 8,
+                    color: "#22c55e",
+                    weight: 2,
+                    fillColor: "#22c55e",
+                    fillOpacity: 0.9
+                }).addTo(publicSafetyMap);
+            } else {
+                publicUserMarker.setLatLng(coords);
+            }
+            updatePublicLocationPopup();
+            publicSafetyMap.setView(coords, Math.max(publicSafetyMap.getZoom(), 12));
+            updatePublicOfflineDownloadAvailability();
+        }
+
+        function detectPublicLocation() {
+            if (publicLocationGate.isBusy()) return;
+            publicLocationGate.begin();
+            if (!navigator.geolocation) {
+                showToast("Location", "Geolocation is not supported by your browser.");
+                publicLocationGate.end();
+                return;
+            }
+            DisasterLocation.requestPrecisePosition({ timeout: 12000, maximumAge: 0 }).then((pos) => {
+                publicLocationAccuracyMeters = Number(pos?.coords?.accuracy) || null;
+                publicFallbackLocationLabel = "";
+                setPublicCurrentLocation(pos.coords.latitude, pos.coords.longitude);
+                const accuracy = DisasterLocation.formatLocationAccuracy(pos.coords.accuracy);
+                showToast("Location", accuracy ? `Current location detected (${accuracy}).` : "Current location detected.");
+                if (DisasterLocation.isLowLocationAccuracy(pos.coords.accuracy)) {
+                    showToast("⚠ Accuracy", "GPS accuracy is weak. You can use a city manually if the pin is wrong.");
+                }
+            }).catch(() => {
+                showToast("Location", "Unable to access your location.");
+            }).finally(() => {
+                publicLocationGate.end();
+            });
+        }
+
+        function applyPublicCityLocation() {
+            const input = document.getElementById("publicCityInput");
+            const cityName = String(input?.value || "").trim();
+            if (!cityName) {
+                showToast("Location", "Enter a city name first.");
+                return;
+            }
+
+            const city = DisasterLocation.resolveCity(cityName);
+            if (!city) {
+                showToast("Location", "Unsupported city. Try Hyderabad, Mumbai, Delhi, Bengaluru, Chennai, or another supported city.");
+                return;
+            }
+
+            publicLocationAccuracyMeters = null;
+            publicFallbackLocationLabel = city.name;
+            setPublicCurrentLocation(city.lat, city.lng);
+            showToast("Location", `Map centered to ${city.name}.`);
+        }
+
+        function updatePublicOfflineDownloadAvailability() {
+            const button = document.querySelector("#publicMapCard [data-offline-download]");
+            if (!button) return;
+            const supported = ("serviceWorker" in navigator) && location.protocol !== "file:" && window.isSecureContext;
+            button.disabled = !supported || publicTileDownloadInProgress;
+            button.title = supported
+                ? (publicTileDownloadInProgress ? "Download already in progress" : "Save map tiles around your current location for offline access")
+                : "Offline tile download requires HTTPS or http://localhost";
+        }
+
+        function findNearbyShelterForLocation(lat, lng, maxDistanceKm = 0.2) {
+            if (!Array.isArray(publicShelterCache) || !publicShelterCache.length) return null;
+
+            let closest = null;
+            for (const shelter of publicShelterCache) {
+                const shelterLat = Number(shelter.latitude);
+                const shelterLng = Number(shelter.longitude);
+                if (!Number.isFinite(shelterLat) || !Number.isFinite(shelterLng)) continue;
+
+                const distanceKm = haversineKm(lat, lng, shelterLat, shelterLng);
+                if (distanceKm > maxDistanceKm) continue;
+                if (!closest || distanceKm < closest.distanceKm) {
+                    closest = { shelter, distanceKm };
+                }
+            }
+
+            return closest;
+        }
+
+        function updatePublicLocationPopup() {
+            if (!publicUserMarker || !publicCurrentLocation) return null;
+
+            const nearby = findNearbyShelterForLocation(publicCurrentLocation.lat, publicCurrentLocation.lng);
+            const accuracyText = Number.isFinite(publicLocationAccuracyMeters)
+                ? `<br>GPS accuracy: ±${Math.round(publicLocationAccuracyMeters)} m`
+                : (publicFallbackLocationLabel ? `<br>Manual city: ${publicFallbackLocationLabel}` : "");
+            if (!nearby) {
+                publicUserMarker.bindPopup(`📍 Your current location${accuracyText}`);
+                return null;
+            }
+
+            const shelter = nearby.shelter;
+            const availableBeds = Math.max(0, (shelter.capacity || 0) - (shelter.current_occupancy || 0));
+            publicUserMarker.bindPopup(`
+                <strong>📍 You are already at ${shelter.name}</strong><br>
+                ${shelter.location || "Location unavailable"}<br>
+                Status: ${(shelter.status || "open").toUpperCase()}<br>
+                Available Beds: ${availableBeds}${accuracyText}
+            `);
+            publicUserMarker.openPopup();
+            return nearby;
+        }
+
+        async function triggerTileDownload(urls) {
+            if (!Array.isArray(urls) || !urls.length) {
+                return { completed: 0, failed: 0, total: 0 };
+            }
+            const ready = await ensureMapTileServiceWorker();
+            if (!ready) throw new Error("service worker unavailable");
+
+            const worker = navigator.serviceWorker.controller || (await navigator.serviceWorker.ready).active;
+            if (!worker) throw new Error("service worker controller unavailable");
+
+            return new Promise((resolve, reject) => {
+                publicTileDownloadResolve = resolve;
+                publicTileDownloadReject = reject;
+                worker.postMessage({ type: "DOWNLOAD_TILES", urls });
+                setTimeout(() => {
+                    if (publicTileDownloadResolve) {
+                        publicTileDownloadResolve = null;
+                        publicTileDownloadReject = null;
+                        reject(new Error("tile download timeout"));
+                    }
+                }, 240000);
+            });
+        }
+
+        async function downloadPublicOfflineMapArea() {
+            if (publicTileDownloadInProgress) {
+                showToast("Offline Download", "A tile download is already running.");
+                return;
+            }
+            if (!publicCurrentLocation) {
+                showToast("Location Required", "Please tap 'Use My Location' first.");
+                return;
+            }
+            if (!navigator.onLine) {
+                showToast("Offline", "Connect to the internet once to download map tiles.");
+                return;
+            }
+
+            const radiusKm = 20;
+            const urls = buildOfflineTileUrls(publicCurrentLocation.lat, publicCurrentLocation.lng, radiusKm);
+            if (!urls.length) {
+                showToast("Offline Download", "No tile URLs generated for this area.");
+                return;
+            }
+
+            publicTileDownloadInProgress = true;
+            updatePublicOfflineDownloadAvailability();
+            showToast("Offline Download", `Starting ${urls.length} tile downloads for a ${radiusKm} km area.`);
+
+            try {
+                const result = await triggerTileDownload(urls);
+                if (Number(result?.completed || 0) > 0) {
+                    rememberOfflineTilePack(publicCurrentLocation.lat, publicCurrentLocation.lng, radiusKm);
+                }
+            } catch (err) {
+                showToast("Offline Download Error", err?.message || "Failed to download offline tiles.");
+            } finally {
+                publicTileDownloadInProgress = false;
+                updatePublicOfflineDownloadAvailability();
+            }
+        }
+
+        async function drawRouteToShelter(shelterId, precomputedRoute = null) {
+            if (!ensurePublicMap()) return;
+            if (!publicCurrentLocation) {
+                showToast("Route", "Please tap 'Use My Location' first.");
+                return;
+            }
+            const shelter = publicShelterCache.find((item) => Number(item.id) === Number(shelterId));
+            if (!shelter) {
+                showToast("Route", "Shelter not found.");
+                return;
+            }
+            const lat = Number(shelter.latitude);
+            const lng = Number(shelter.longitude);
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+                showToast("Route", "Shelter location coordinates are missing.");
+                return;
+            }
+
+            clearPublicRoute();
+            try {
+                const roadRoute = precomputedRoute || await fetchRoadRoute(
+                    publicCurrentLocation.lat,
+                    publicCurrentLocation.lng,
+                    lat,
+                    lng
+                );
+                publicRouteLine = L.polyline(roadRoute.latLngs, {
+                    color: "#3b82f6",
+                    weight: 5,
+                    opacity: 0.9,
+                    dashArray: roadRoute.source === "offline" ? "9,7" : undefined
+                }).addTo(publicSafetyMap);
+                publicRouteLine.bindPopup(
+                    `Route to ${shelter.name}<br>Distance: ${roadRoute.distanceKm.toFixed(2)} km<br>ETA: ${Math.max(1, Math.round(roadRoute.durationMin))} min${roadRoute.source === "offline" ? "<br>Offline local guidance mode" : ""}`
+                ).openPopup();
+                publicSafetyMap.fitBounds(publicRouteLine.getBounds(), { padding: [24, 24], maxZoom: 14 });
+            } catch (err) {
+                publicRouteLine = L.polyline(
+                    [[publicCurrentLocation.lat, publicCurrentLocation.lng], [lat, lng]],
+                    { color: "#60a5fa", weight: 4, opacity: 0.85, dashArray: "8,6" }
+                ).addTo(publicSafetyMap);
+                const distance = haversineKm(publicCurrentLocation.lat, publicCurrentLocation.lng, lat, lng);
+                publicRouteLine.bindPopup(
+                    `Approx line to ${shelter.name}<br>Distance: ${distance.toFixed(2)} km<br>(Road route unavailable right now)`
+                ).openPopup();
+                publicSafetyMap.fitBounds(publicRouteLine.getBounds(), { padding: [24, 24], maxZoom: 14 });
+                showToast("Route", "Road routing unavailable. Showing approximate line.");
+            }
+        }
+
+        async function routeToNearestOpenShelter() {
+            if (!publicCurrentLocation) {
+                showToast("Route", "Please tap 'Use My Location' first.");
+                return;
+            }
+
+            const nearbyShelter = findNearbyShelterForLocation(publicCurrentLocation.lat, publicCurrentLocation.lng);
+            if (nearbyShelter) {
+                updatePublicLocationPopup();
+                clearPublicRoute();
+                showToast("Already at Shelter", `You are already at ${nearbyShelter.shelter.name}.`);
+                return;
+            }
+
+            const candidates = publicShelterCache.filter((shelter) =>
+                String(shelter.status || "").toLowerCase() === "open"
+                && Number.isFinite(Number(shelter.latitude))
+                && Number.isFinite(Number(shelter.longitude))
+            );
+            if (!candidates.length) {
+                showToast("Route", "No open shelters with map coordinates found.");
+                return;
+            }
+
+            const preSorted = [...candidates].sort((a, b) => {
+                const da = haversineKm(
+                    publicCurrentLocation.lat, publicCurrentLocation.lng,
+                    Number(a.latitude), Number(a.longitude)
+                );
+                const db = haversineKm(
+                    publicCurrentLocation.lat, publicCurrentLocation.lng,
+                    Number(b.latitude), Number(b.longitude)
+                );
+                return da - db;
+            }).slice(0, 5);
+
+            let best = null;
+            for (const candidate of preSorted) {
+                try {
+                    const roadRoute = await fetchRoadRoute(
+                        publicCurrentLocation.lat,
+                        publicCurrentLocation.lng,
+                        Number(candidate.latitude),
+                        Number(candidate.longitude)
+                    );
+                    if (!best || roadRoute.distanceKm < best.route.distanceKm) {
+                        best = { shelter: candidate, route: roadRoute };
+                    }
+                } catch (err) {
+                    // Ignore individual route failures and keep trying the next nearby shelter.
+                }
+            }
+
+            if (best) {
+                await drawRouteToShelter(best.shelter.id, best.route);
+                return;
+            }
+
+            await drawRouteToShelter(preSorted[0].id);
+        }
+
+        function renderPublicShelterDetails(shelters) {
+            const container = document.getElementById("publicShelterDetails");
+            if (!container) return;
+            if (!shelters.length) {
+                container.innerHTML = '<div class="empty-state"><p>No shelters available right now.</p></div>';
+                return;
+            }
+
+            const sorted = [...shelters].sort((a, b) => {
+                const weight = { open: 0, full: 1, closed: 2 };
+                return (weight[a.status] ?? 9) - (weight[b.status] ?? 9);
+            });
+
+            container.innerHTML = `
+                <div class="table-wrap"><table>
+                    <thead><tr><th>Shelter</th><th>Location</th><th>Status</th><th>Available Beds</th><th>Contact</th><th>Route</th></tr></thead>
+                    <tbody>
+                        ${sorted.map((s) => {
+                const available = Math.max(0, (s.capacity || 0) - (s.current_occupancy || 0));
+                const hasCoords = Number.isFinite(Number(s.latitude)) && Number.isFinite(Number(s.longitude));
+                return `<tr>
+                                <td><strong>${s.name}</strong></td>
+                                <td>${s.location || "—"}</td>
+                                <td>${severityBadge(s.status || "open")}</td>
+                                <td style="font-weight:700;color:${available > 0 ? "var(--success)" : "var(--danger)"}">${available}</td>
+                                <td>${s.contact || "—"}</td>
+                                <td>${hasCoords
+                        ? `<button class="btn btn-secondary btn-sm" onclick="drawRouteToShelter(${s.id})">Route</button>`
+                        : '<span style="color:var(--text-muted)">No map point</span>'}
+                                </td>
+                            </tr>`;
+            }).join("")}
+                    </tbody>
+                </table></div>`;
+        }
+
+        function renderPublicMissingList(missingPeople) {
+            const container = document.getElementById("publicMissingList");
+            if (!container) return;
+            if (!missingPeople.length) {
+                container.innerHTML = '<div class="empty-state"><p>No active missing-person reports.</p></div>';
+                return;
+            }
+
+            container.innerHTML = `
+                <div class="table-wrap"><table>
+                    <thead><tr><th>Name</th><th>Age</th><th>City</th><th>Contact</th><th>Reported</th></tr></thead>
+                    <tbody>
+                        ${missingPeople.map((p) => `<tr>
+                            <td><strong>${p.name}</strong></td>
+                            <td>${p.age ?? "—"}</td>
+                            <td>${p.city || "—"}</td>
+                            <td>${p.contact || "—"}</td>
+                            <td style="color:var(--text-muted);font-size:.82rem">${fmtDate(p.reported_at)}</td>
+                        </tr>`).join("")}
+                    </tbody>
+                </table></div>`;
+        }
+
+        function ensurePublicMap() {
+            const mapEl = document.getElementById("publicSafetyMap");
+            if (!mapEl) return false;
+            if (publicSafetyMap) return true;
+            if (typeof L === "undefined") {
+                mapEl.innerHTML = '<div class="empty-state"><p>Map library unavailable. Shelter and missing details are listed below.</p></div>';
+                return false;
+            }
+
+            publicSafetyMap = L.map("publicSafetyMap", {
+                zoomControl: true,
+                attributionControl: true
+            }).setView([20.5937, 78.9629], 5);
+
+            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                maxZoom: 19,
+                attribution: "&copy; OpenStreetMap"
+            }).addTo(publicSafetyMap);
+            return true;
+        }
+
+        function updatePublicMap(shelters, missingPeople) {
+            if (!ensurePublicMap()) return;
+
+            publicShelterMarkers.forEach((marker) => marker.remove());
+            publicMissingMarkers.forEach((marker) => marker.remove());
+            publicShelterMarkers = [];
+            publicMissingMarkers = [];
+
+            const bounds = [];
+            const cityToCoords = {};
+
+            shelters.forEach((shelter) => {
+                const lat = Number(shelter.latitude);
+                const lng = Number(shelter.longitude);
+                if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+                const color = statusColor(shelter.status);
+                const available = Math.max(0, (shelter.capacity || 0) - (shelter.current_occupancy || 0));
+                const marker = L.circleMarker([lat, lng], {
+                    radius: 7,
+                    color,
+                    weight: 2,
+                    fillColor: color,
+                    fillOpacity: 0.8
+                }).addTo(publicSafetyMap);
+                marker.bindPopup(`
+                    <strong>${shelter.name}</strong><br>
+                    ${shelter.location || "Location unavailable"}<br>
+                    Status: ${(shelter.status || "open").toUpperCase()}<br>
+                    Available Beds: ${available}<br>
+                    <button class="btn btn-secondary btn-sm" onclick="drawRouteToShelter(${shelter.id})" style="margin-top:6px">Route</button>
+                `);
+                publicShelterMarkers.push(marker);
+                bounds.push([lat, lng]);
+
+                const cityKey = inferCityFromShelter(shelter);
+                if (cityKey && !cityToCoords[cityKey]) {
+                    cityToCoords[cityKey] = [lat, lng];
+                }
+            });
+
+            missingPeople.forEach((person) => {
+                const cityKey = String(person.city || "").trim().toLowerCase();
+                const coords = cityToCoords[cityKey];
+                if (!coords) return;
+
+                const marker = L.circleMarker(coords, {
+                    radius: 6,
+                    color: "#60a5fa",
+                    weight: 2,
+                    fillColor: "#60a5fa",
+                    fillOpacity: 0.9
+                }).addTo(publicSafetyMap);
+                marker.bindPopup(`
+                    <strong>Missing: ${person.name}</strong><br>
+                    City: ${person.city || "Unknown"}<br>
+                    Contact: ${person.contact || "—"}<br>
+                    Reported: ${fmtDate(person.reported_at)}
+                `);
+                publicMissingMarkers.push(marker);
+            });
+
+            if (bounds.length) {
+                publicSafetyMap.fitBounds(bounds, { padding: [20, 20], maxZoom: 11 });
+            }
+            setTimeout(() => publicSafetyMap.invalidateSize(), 80);
+        }
+
+        async function loadPublicSafetyData() {
+            const shelterContainer = document.getElementById("publicShelterDetails");
+            const missingContainer = document.getElementById("publicMissingList");
+            try {
+                const [shelters, missingPeople] = await Promise.all([
+                    apiGet("/shelters", { silentForbidden: true }),
+                    apiGet("/missing", { silentForbidden: true })
+                ]);
+                publicShelterCache = Array.isArray(shelters) ? shelters : [];
+                renderPublicShelterDetails(Array.isArray(shelters) ? shelters : []);
+                renderPublicMissingList(Array.isArray(missingPeople) ? missingPeople : []);
+                updatePublicMap(
+                    Array.isArray(shelters) ? shelters : [],
+                    Array.isArray(missingPeople) ? missingPeople : []
+                );
+                updatePublicLocationPopup();
+            } catch (err) {
+                if (shelterContainer) shelterContainer.innerHTML = '<div class="empty-state"><p>Failed to load shelter details.</p></div>';
+                if (missingContainer) missingContainer.innerHTML = '<div class="empty-state"><p>Failed to load missing-people data.</p></div>';
+            }
+        }
+
+        async function loadDashboard() {
+            if (isPublicUser) return;
+            try {
+                // Weather stats
+                const stats = await apiGet("/dashboard/stats");
+                document.getElementById("heatwaves").textContent = stats.heatwave_alerts;
+                document.getElementById("storms").textContent = stats.storm_alerts;
+                document.getElementById("rains").textContent = stats.rain_alerts;
+                document.getElementById("floods").textContent = stats.flood_alerts;
+                document.getElementById("totalRecords").textContent = stats.total_records;
+
+                renderDonutChart(
+                    "alertChart",
+                    ["Heatwave", "Storm", "Rain", "Flood"],
+                    [stats.heatwave_alerts, stats.storm_alerts, stats.rain_alerts, stats.flood_alerts],
+                    ["#ef4444", "#8b5cf6", "#3b82f6", "#f59e0b"]
+                );
+            } catch (e) { }
+        }
+
+        async function loadShelterStats() {
+            if (isPublicUser) return;
+            try {
+                const s = await apiGet("/shelters/stats");
+                document.getElementById("totalShelters").textContent = s.total_shelters;
+                document.getElementById("availableBeds").textContent = s.available_beds;
+            } catch (e) { }
+        }
+
+        async function loadPeopleStats() {
+            if (isPublicUser) return;
+            if (canViewSurvivorStats) {
+                try {
+                    const survivors = await apiGet("/survivors", { silentForbidden: true });
+                    document.getElementById("totalSurvivors").textContent = survivors.length;
+                } catch (e) {
+                    document.getElementById("totalSurvivors").textContent = "0";
+                }
+            } else {
+                document.getElementById("totalSurvivors").textContent = "—";
+            }
+
+            if (canViewVolunteerStats) {
+                try {
+                    const vols = await apiGet("/volunteers", { silentForbidden: true });
+                    document.getElementById("totalVolunteers").textContent = vols.length;
+                } catch (e) {
+                    document.getElementById("totalVolunteers").textContent = "0";
+                }
+            } else {
+                document.getElementById("totalVolunteers").textContent = "—";
+            }
+        }
+
+        async function loadRequestStats() {
+            if (isPublicUser) return;
+            if (!canViewRequestStatsBlock) {
+                document.getElementById("pendingReqs").textContent = "—";
+                document.getElementById("progressReqs").textContent = "—";
+                document.getElementById("resolvedReqs").textContent = "—";
+                const reqChart = document.getElementById("reqChart");
+                if (reqChart) {
+                    reqChart.innerHTML = '<div class="empty-state"><p>Request stats are available to volunteers/admin.</p></div>';
+                }
+                return;
+            }
+            try {
+                const s = await apiGet("/emergency-requests/stats", { silentForbidden: true });
+                document.getElementById("pendingReqs").textContent = s.pending;
+                document.getElementById("progressReqs").textContent = s.in_progress;
+                document.getElementById("resolvedReqs").textContent = s.resolved;
+
+                renderDonutChart(
+                    "reqChart",
+                    ["Pending", "In Progress", "Resolved"],
+                    [s.pending, s.in_progress, s.resolved],
+                    ["#f59e0b", "#3b82f6", "#10b981"]
+                );
+            } catch (e) { }
+        }
+
+        async function loadRecentAlerts() {
+            const container = document.getElementById("recentAlerts");
+            try {
+                const alerts = await apiGet(isPublicUser ? "/alerts/today" : "/alerts/recent");
+                if (!alerts.length) {
+                    container.innerHTML = `<div class="empty-state"><p>${isPublicUser ? "No disaster alerts for today — stay safe." : "No recent disaster alerts — all clear."}</p></div>`;
+                    return;
+                }
+                container.innerHTML = `
+        <div class="table-wrap"><table>
+          <thead><tr><th>City</th><th>Alert</th><th>Temp</th><th>Humidity</th><th>Wind</th><th>Time</th></tr></thead>
+          <tbody>${alerts.map(a => `<tr><td><strong>${a.city}</strong></td><td>${a.alert}</td><td>${a.temperature}°C</td><td>${a.humidity}%</td><td>${a.wind_speed} m/s</td><td style="color:var(--text-muted);font-size:.82rem">${fmtDate(a.timestamp)}</td></tr>`).join("")}</tbody>
+        </table></div>`;
+            } catch (e) {
+                container.innerHTML = '<div class="empty-state"><p>Failed to load alerts</p></div>';
+            }
+        }
+
+        // Load everything
+        if (isPublicUser) {
+            ensureMapTileServiceWorker();
+            loadRecentAlerts();
+            loadPublicSafetyData();
+            setInterval(() => { loadRecentAlerts(); loadPublicSafetyData(); }, 30000);
+        } else {
+            loadDashboard();
+            loadShelterStats();
+            loadPeopleStats();
+            loadRequestStats();
+            loadRecentAlerts();
+            loadPublicSafetyData();
+            setInterval(() => { loadDashboard(); loadShelterStats(); loadPeopleStats(); loadRequestStats(); loadRecentAlerts(); loadPublicSafetyData(); }, 30000);
+        }
+    </script>
+
+</body>
+
+</html>

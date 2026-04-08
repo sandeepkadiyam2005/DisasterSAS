@@ -1,0 +1,10 @@
+flask
+flask-sqlalchemy
+flask-cors
+flask-jwt-extended
+flask-socketio
+psycopg2-binary
+requests
+werkzeug
+twilio
+apscheduler

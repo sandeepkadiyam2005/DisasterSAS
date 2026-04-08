@@ -1,0 +1,2988 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Map — DisasterSAS</title>
+    <meta name="description" content="Hybrid disaster map with online turn-by-turn and offline local fallback">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        .map-status {
+            margin-bottom: 12px;
+            font-size: .82rem;
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+            border-radius: 8px;
+            padding: 8px 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .map-status.error {
+            color: var(--danger);
+            border-color: rgba(248, 113, 113, .35);
+        }
+
+        .map-live-canvas {
+            position: absolute;
+            inset: 0;
+            z-index: 0;
+            display: none;
+        }
+
+        .offline-map.online-surface {
+            background: #0b1220;
+        }
+
+        .offline-map.online-surface .map-grid-overlay,
+        .offline-map.online-surface #baseLayer,
+        .offline-map.online-surface #routeLayer,
+        .offline-map.online-surface #alertLayer,
+        .offline-map.online-surface #shelterLayer {
+            display: none;
+        }
+
+        .offline-map.online-surface .map-live-canvas {
+            display: block;
+        }
+
+        .offline-map.online-surface .map-caption {
+            z-index: 450;
+        }
+
+        .map-mode-badge {
+            font-size: .7rem;
+            font-weight: 700;
+            letter-spacing: .4px;
+            text-transform: uppercase;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            padding: 3px 8px;
+            color: var(--text-muted);
+            background: rgba(255, 255, 255, .02);
+            white-space: nowrap;
+        }
+
+        .map-mode-badge.online {
+            color: #93c5fd;
+            border-color: rgba(147, 197, 253, .45);
+            background: rgba(59, 130, 246, .12);
+        }
+
+        .map-mode-badge.map-badge-good {
+            color: #86efac;
+            border-color: rgba(134, 239, 172, .45);
+            background: rgba(34, 197, 94, .12);
+        }
+
+        .map-mode-badge.map-badge-warn {
+            color: #fbbf24;
+            border-color: rgba(251, 191, 36, .45);
+            background: rgba(245, 158, 11, .12);
+        }
+
+        .map-radius-ring {
+            position: absolute;
+            inset: 6%;
+            border: 1px dashed rgba(255, 255, 255, .32);
+            border-radius: 50%;
+            pointer-events: none;
+        }
+
+        .map-user-marker {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 18px;
+            height: 18px;
+            transform: translate(-50%, -90%) rotate(-45deg);
+            border-radius: 50% 50% 50% 0;
+            background: #2563eb;
+            border: 2px solid #f8fafc;
+            box-shadow: 0 6px 14px rgba(15, 23, 42, .5);
+        }
+
+        .map-user-marker::after {
+            content: "";
+            position: absolute;
+            width: 6px;
+            height: 6px;
+            left: 4px;
+            top: 4px;
+            border-radius: 50%;
+            background: #f8fafc;
+            transform: rotate(45deg);
+        }
+
+        .map-user-pulse {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(147, 197, 253, .6);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            animation: pulse-user 2s linear infinite;
+        }
+
+        .map-user-label {
+            position: absolute;
+            left: 50%;
+            top: calc(50% - 30px);
+            transform: translateX(-50%);
+            font-size: .7rem;
+            font-weight: 700;
+            color: #dbeafe;
+            background: rgba(15, 23, 42, .78);
+            border: 1px solid rgba(147, 197, 253, .35);
+            border-radius: 999px;
+            padding: 2px 8px;
+            pointer-events: none;
+            white-space: nowrap;
+        }
+
+        .user-pin-div-icon {
+            background: transparent;
+            border: 0;
+        }
+
+        .user-pin-marker {
+            position: relative;
+            display: block;
+            width: 18px;
+            height: 18px;
+            transform: rotate(-45deg);
+            border-radius: 50% 50% 50% 0;
+            background: #2563eb;
+            border: 2px solid #f8fafc;
+            box-shadow: 0 4px 12px rgba(15, 23, 42, .45);
+        }
+
+        .user-pin-marker::after {
+            content: "";
+            position: absolute;
+            width: 6px;
+            height: 6px;
+            left: 4px;
+            top: 4px;
+            border-radius: 50%;
+            background: #f8fafc;
+            transform: rotate(45deg);
+        }
+
+        .map-user-tooltip {
+            background: rgba(15, 23, 42, .88);
+            color: #e2e8f0;
+            border: 1px solid rgba(148, 163, 184, .4);
+            border-radius: 8px;
+            font-size: .72rem;
+            font-weight: 700;
+            padding: 3px 8px;
+            box-shadow: none;
+        }
+
+        .map-user-tooltip::before {
+            border-top-color: rgba(15, 23, 42, .88);
+        }
+
+        .map-axis {
+            position: absolute;
+            font-size: .72rem;
+            color: var(--text-muted);
+            background: rgba(0, 0, 0, .4);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 2px 6px;
+            pointer-events: none;
+        }
+
+        .map-axis.n {
+            left: 50%;
+            top: 4px;
+            transform: translateX(-50%);
+        }
+
+        .map-axis.s {
+            left: 50%;
+            bottom: 28px;
+            transform: translateX(-50%);
+        }
+
+        .map-axis.w {
+            left: 4px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        .map-axis.e {
+            right: 4px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        .dot-user {
+            background: #f8fafc;
+        }
+
+        .map-outside-radius {
+            opacity: .8;
+            filter: saturate(.8);
+            outline: 1px dashed rgba(255, 255, 255, .45);
+            outline-offset: 2px;
+        }
+
+        .map-route-svg {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        .map-route-line {
+            stroke: #f8fafc;
+            stroke-width: 0.45;
+            stroke-dasharray: 1.2 0.8;
+            opacity: .88;
+        }
+
+        .map-route-dot {
+            fill: #f8fafc;
+        }
+
+        .direction-card {
+            margin-top: 14px;
+        }
+
+        .direction-row {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 10px;
+            align-items: center;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+            background: rgba(255, 255, 255, .01);
+        }
+
+        .direction-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .direction-meta {
+            color: var(--text-secondary);
+            font-size: .78rem;
+            margin-top: 2px;
+        }
+
+        .direction-actions {
+            display: flex;
+            gap: 6px;
+        }
+
+        .direction-empty {
+            color: var(--text-muted);
+            font-size: .82rem;
+            border: 1px dashed var(--border);
+            border-radius: 8px;
+            padding: 12px;
+        }
+
+        .tbt-panel {
+            margin-top: 10px;
+            border-top: 1px solid var(--border);
+            padding-top: 10px;
+            display: none;
+        }
+
+        .tbt-title {
+            font-size: .82rem;
+            color: var(--text-primary);
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+
+        .tbt-hint {
+            color: var(--text-secondary);
+            font-size: .76rem;
+            margin-bottom: 8px;
+        }
+
+        .tbt-step {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 7px 9px;
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            margin-bottom: 6px;
+            font-size: .78rem;
+        }
+
+        .tbt-step:last-child {
+            margin-bottom: 0;
+        }
+
+        .tbt-distance {
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+
+        .map-controls .inline-select {
+            min-width: 118px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: rgba(17, 24, 39, 0.92);
+            color: var(--text-primary);
+            padding: 6px 10px;
+            font-size: .8rem;
+        }
+
+        @keyframes pulse-user {
+            0% {
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(.7);
+            }
+
+            100% {
+                opacity: 0;
+                transform: translate(-50%, -50%) scale(1.5);
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="main" id="mainContent">
+        <div class="page-header">
+            <h1>🗺 Live Disaster Map</h1>
+            <p>Auto mode: online turn-by-turn, offline local view near your location</p>
+        </div>
+
+        <div class="map-controls">
+            <button class="btn btn-danger btn-sm" id="alertsBtn" onclick="toggleAlerts()">🔴 Disaster Alerts</button>
+            <button class="btn btn-success btn-sm" id="sheltersBtn" onclick="toggleShelters()">🟢 Shelters</button>
+            <button class="btn btn-secondary btn-sm" id="zoomInBtn" onclick="zoomViewIn()">Zoom In</button>
+            <button class="btn btn-secondary btn-sm" id="zoomOutBtn" onclick="zoomViewOut()">Zoom Out</button>
+            <button class="btn btn-secondary btn-sm" id="indiaViewBtn" onclick="toggleIndiaView()">India View</button>
+            <select id="offlineRadiusSelect" class="inline-select" aria-label="Offline download radius">
+                <option value="20">Offline 20 km</option>
+                <option value="50">Offline 50 km</option>
+            </select>
+            <input id="manualCityInput" class="inline-select manual-city-input" list="manualCityList" placeholder="Enter city" aria-label="Enter city manually" style="min-width:160px;border-radius:8px;border:1px solid var(--border);background:rgba(17, 24, 39, 0.92);color:var(--text-primary);padding:6px 10px">
+            <datalist id="manualCityList" data-disaster-city-list></datalist>
+            <button class="btn btn-secondary btn-sm" id="offlineDownloadBtn" onclick="downloadOfflineMapArea()">Download Offline Map</button>
+            <button class="btn btn-secondary btn-sm" onclick="refreshLocation()">🔄 Refresh Location</button>
+            <button class="btn btn-secondary btn-sm" onclick="detectLocation(true)">📍 Recenter</button>
+            <button class="btn btn-secondary btn-sm" onclick="applyManualCityLocation()">Use City</button>
+        </div>
+
+        <div class="map-status" id="mapStatus">
+            <span class="map-mode-badge" id="mapModeLabel">Offline</span>
+            <span id="mapStatusText">Detecting your location for map view...</span>
+            <span class="map-mode-badge" id="mapAccuracyLabel" style="display:none"></span>
+        </div>
+
+        <div id="map" class="offline-map">
+            <div id="liveMap" class="map-live-canvas" aria-label="Online street map"></div>
+            <div class="map-grid-overlay"></div>
+            <div class="map-layer" id="baseLayer">
+                <div class="map-axis n">N +20km</div>
+                <div class="map-axis s">S +20km</div>
+                <div class="map-axis w">W +20km</div>
+                <div class="map-axis e">E +20km</div>
+            </div>
+            <svg class="map-route-svg" id="routeLayer" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+            <div class="map-layer" id="alertLayer"></div>
+            <div class="map-layer" id="shelterLayer"></div>
+            <div class="map-caption" id="mapCaption">Offline local projection</div>
+        </div>
+        <div class="map-legend">
+            <span>📍 You</span>
+            <span><i class="dot dot-danger"></i> Alerts</span>
+            <span><i class="dot dot-success"></i> Shelters</span>
+        </div>
+
+        <div class="card direction-card">
+            <h3 style="margin-bottom:10px;font-weight:700">Nearest Shelters & Directions</h3>
+            <p style="margin:0 0 12px;color:var(--text-secondary);font-size:.82rem">
+                Auto mode: navigate in-app online or offline. Save routes to reuse when internet is unavailable.
+            </p>
+            <div id="directionList" class="direction-empty">Detecting location and shelters...</div>
+            <div class="tbt-panel" id="tbtPanel">
+                <div class="tbt-title">Turn-by-Turn Guidance</div>
+                <div class="tbt-hint" id="tbtHint"></div>
+                <div id="tbtList"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+    <script>
+        if (!requirePagePermission("map:view")) throw "redirect";
+        buildSidebar("map.html");
+        initSocket();
+
+        const VIEW_RADIUS_KM = 20;
+        const MIN_VIEW_RADIUS_KM = 5;
+        const MAX_VIEW_RADIUS_KM = 500;
+        const INDIA_VIEW_RADIUS_KM = 3000;
+        const LOCATION_LOW_ACCURACY_WARN_METERS = 3000;
+        const LOCATION_UPDATE_MIN_DISTANCE_KM = 0.005;
+        const INDIA_BOUNDS = [[6.4, 68.0], [37.6, 97.6]];
+        const ONLINE_TILE_SOURCES = [
+            {
+                name: "Carto Voyager",
+                url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+                options: {
+                    crossOrigin: "anonymous",
+                    referrerPolicy: "strict-origin-when-cross-origin",
+                    maxZoom: 19,
+                    subdomains: "abcd",
+                    attribution: "&copy; OpenStreetMap contributors &copy; CARTO"
+                }
+            },
+            {
+                name: "Esri WorldStreetMap",
+                url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+                options: {
+                    crossOrigin: "anonymous",
+                    referrerPolicy: "strict-origin-when-cross-origin",
+                    maxZoom: 19,
+                    attribution: "Tiles &copy; Esri"
+                }
+            },
+            {
+                name: "OpenStreetMap",
+                url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+                options: {
+                    crossOrigin: "anonymous",
+                    referrerPolicy: "strict-origin-when-cross-origin",
+                    maxZoom: 19,
+                    attribution: "&copy; OpenStreetMap contributors"
+                }
+            }
+        ];
+        const ONLINE_TILE_ERROR_LIMIT = 8;
+        const ONLINE_TILE_LOAD_MIN = 2;
+        const OFFLINE_TILE_ZOOMS = [12, 13, 14, 15];
+        const OFFLINE_TILE_PACKS_KEY = "disaster_offline_tile_packs_v1";
+        const TILE_DB_NAME = "disaster_tile_db_v1";
+        const TILE_DB_STORE = "tiles";
+        const EMPTY_TILE_DATA_URL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO9xv2QAAAAASUVORK5CYII=";
+        const MAX_SAVED_ROUTES = 40;
+        const ROUTE_CACHE_MAX_START_DELTA_KM = 0.4;
+        const ROUTE_CACHE_OFFLINE_MAX_START_DELTA_KM = 12;
+        const ROUTE_CACHE_CONNECTOR_MIN_KM = 0.08;
+        const ROUTE_WARMUP_NEAREST_LIMIT = 3;
+        const ROUTE_WARMUP_RETRY_DELAY_MS = 8 * 60 * 1000;
+        const SHORT_ROUTE_WALKING_MAX_KM = 3;
+        const SHORT_ROUTE_MAX_DETOUR_FACTOR = 4.5;
+        const SHORT_ROUTE_MAX_SNAP_METERS = 400;
+        const VERY_NEAR_ROUTE_KM = 1.2;
+        const VERY_NEAR_MAX_DETOUR_FACTOR = 2.1;
+        const VERY_NEAR_MAX_SNAP_METERS = 160;
+        const NEAR_ROUTE_MAX_DETOUR_FACTOR = 2.8;
+        const NEAR_ROUTE_MAX_SNAP_METERS = 280;
+        const cityCoords = {
+            mumbai: { lat: 19.0760, lng: 72.8777 },
+            bombay: { lat: 19.0760, lng: 72.8777 },
+            delhi: { lat: 28.6139, lng: 77.2090 },
+            bengaluru: { lat: 12.9716, lng: 77.5946 },
+            bangalore: { lat: 12.9716, lng: 77.5946 },
+            chennai: { lat: 13.0827, lng: 80.2707 },
+            madras: { lat: 13.0827, lng: 80.2707 },
+            hyderabad: { lat: 17.3850, lng: 78.4867 },
+            hyd: { lat: 17.3850, lng: 78.4867 },
+            kolkata: { lat: 22.5726, lng: 88.3639 },
+            calcutta: { lat: 22.5726, lng: 88.3639 },
+            pune: { lat: 18.5204, lng: 73.8567 },
+            ahmedabad: { lat: 23.0225, lng: 72.5714 },
+            jaipur: { lat: 26.9124, lng: 75.7873 },
+            lucknow: { lat: 26.8467, lng: 80.9462 },
+            patna: { lat: 25.5941, lng: 85.1376 },
+            bhubaneswar: { lat: 20.2961, lng: 85.8245 },
+            guwahati: { lat: 26.1445, lng: 91.7362 },
+            kochi: { lat: 9.9312, lng: 76.2673 },
+            surat: { lat: 21.1702, lng: 72.8311 }
+        };
+        const FALLBACK_CITY_KEY = "hyderabad";
+        const FALLBACK_CITY_LABEL = "Hyderabad";
+
+        let showAlertsLayer = true;
+        let showSheltersLayer = true;
+        let userLocation = null;
+        let isFallbackLocation = false;
+        let directionShelters = [];
+        let isOnlineMode = navigator.onLine;
+        let selectedShelterId = null;
+        let localViewRadiusKm = VIEW_RADIUS_KM;
+        let indiaWideView = false;
+        let lockOnlineViewportToUser = true;
+        let suppressOnlineViewportEvent = false;
+
+        const baseLayer = document.getElementById("baseLayer");
+        const routeLayer = document.getElementById("routeLayer");
+        const alertLayer = document.getElementById("alertLayer");
+        const shelterLayer = document.getElementById("shelterLayer");
+        const statusEl = document.getElementById("mapStatus");
+        const modeLabelEl = document.getElementById("mapModeLabel");
+        const statusTextEl = document.getElementById("mapStatusText");
+        const accuracyBadgeEl = document.getElementById("mapAccuracyLabel");
+        const manualCityInputEl = document.getElementById("manualCityInput");
+        const captionEl = document.getElementById("mapCaption");
+        const mapSurfaceEl = document.getElementById("map");
+        const liveMapEl = document.getElementById("liveMap");
+        const legendEl = document.querySelector(".map-legend");
+        const directionListEl = document.getElementById("directionList");
+        const tbtPanelEl = document.getElementById("tbtPanel");
+        const tbtHintEl = document.getElementById("tbtHint");
+        const tbtListEl = document.getElementById("tbtList");
+        const zoomInBtnEl = document.getElementById("zoomInBtn");
+        const zoomOutBtnEl = document.getElementById("zoomOutBtn");
+        const indiaViewBtnEl = document.getElementById("indiaViewBtn");
+        const offlineRadiusSelectEl = document.getElementById("offlineRadiusSelect");
+        const offlineDownloadBtnEl = document.getElementById("offlineDownloadBtn");
+        const axisNorthEl = baseLayer.querySelector(".map-axis.n");
+        const axisSouthEl = baseLayer.querySelector(".map-axis.s");
+        const axisWestEl = baseLayer.querySelector(".map-axis.w");
+        const axisEastEl = baseLayer.querySelector(".map-axis.e");
+        let onlineMap = null;
+        let onlineTileLayer = null;
+        let onlineTileLayerMode = "online";
+        let onlineTileSourceIndex = 0;
+        let onlineTileLoadCount = 0;
+        let onlineTileErrorCount = 0;
+        let onlineTileCheckTimer = null;
+        let onlineTileSwitchInProgress = false;
+        let onlineTilesBlocked = false;
+        let onlineAlertLayer = null;
+        let onlineShelterLayer = null;
+        let onlineUserMarker = null;
+        let onlineRadiusCircle = null;
+        let onlineRouteLine = null;
+        let latestAlertItems = [];
+        let latestShelterItems = [];
+        let activeRouteCoords = [];
+        let locationAccuracyMeters = null;
+        let alertsWithoutCoords = 0;
+        let sheltersWithoutCoords = 0;
+        let wheelZoomTimer = null;
+        let locationWatchId = null;
+        let locationRefreshTimer = null;
+        let pendingRecenterToast = false;
+        let locationLookupInProgress = false;
+        let offlineViewportOutOfCoverage = false;
+        let activeFallbackLocationLabel = FALLBACK_CITY_LABEL;
+        let mapServiceWorkerRegistered = false;
+        let mapServiceWorkerError = "";
+        let tileDownloadInProgress = false;
+        let tileDownloadResolve = null;
+        let tileDownloadReject = null;
+        let tileDbPromise = null;
+        const ROUTE_CACHE_KEY = "disaster_route_cache_v3";
+        let savedRouteCache = loadSavedRouteCache();
+        let offlineTilePacks = loadOfflineTilePacks();
+        let warmingRouteKeys = new Set();
+        let routeWarmupTimestamps = {};
+
+        function loadSavedRouteCache() {
+            try {
+                const raw = localStorage.getItem(ROUTE_CACHE_KEY);
+                if (!raw) return {};
+                const parsed = JSON.parse(raw);
+                return parsed && typeof parsed === "object" ? parsed : {};
+            } catch {
+                return {};
+            }
+        }
+
+        function persistSavedRouteCache() {
+            try {
+                localStorage.setItem(ROUTE_CACHE_KEY, JSON.stringify(savedRouteCache));
+            } catch {
+                // best-effort cache write
+            }
+        }
+
+        function loadOfflineTilePacks() {
+            try {
+                const raw = localStorage.getItem(OFFLINE_TILE_PACKS_KEY);
+                if (!raw) return [];
+                const parsed = JSON.parse(raw);
+                if (!Array.isArray(parsed)) return [];
+                return parsed
+                    .map((pack) => ({
+                        center: {
+                            lat: Number(pack?.center?.lat),
+                            lng: Number(pack?.center?.lng),
+                        },
+                        radiusKm: Number(pack?.radiusKm),
+                        downloadedAt: Number(pack?.downloadedAt) || Date.now(),
+                    }))
+                    .filter((pack) =>
+                        Number.isFinite(pack.center.lat)
+                        && Number.isFinite(pack.center.lng)
+                        && Number.isFinite(pack.radiusKm)
+                        && pack.radiusKm > 0
+                    );
+            } catch {
+                return [];
+            }
+        }
+
+        function persistOfflineTilePacks() {
+            try {
+                const trimmed = offlineTilePacks.slice(-12);
+                localStorage.setItem(OFFLINE_TILE_PACKS_KEY, JSON.stringify(trimmed));
+            } catch {
+                // best-effort cache metadata write
+            }
+        }
+
+        function rememberOfflineTilePack(centerLat, centerLng, radiusKm) {
+            if (!Number.isFinite(centerLat) || !Number.isFinite(centerLng) || !Number.isFinite(radiusKm)) return;
+            offlineTilePacks.push({
+                center: { lat: Number(centerLat), lng: Number(centerLng) },
+                radiusKm: Number(radiusKm),
+                downloadedAt: Date.now(),
+            });
+            persistOfflineTilePacks();
+        }
+
+        function openTileDatabase() {
+            if (!("indexedDB" in window)) return Promise.resolve(null);
+            if (tileDbPromise) return tileDbPromise;
+
+            tileDbPromise = new Promise((resolve, reject) => {
+                const request = indexedDB.open(TILE_DB_NAME, 1);
+                request.onupgradeneeded = () => {
+                    const db = request.result;
+                    if (!db.objectStoreNames.contains(TILE_DB_STORE)) {
+                        db.createObjectStore(TILE_DB_STORE);
+                    }
+                };
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error || new Error("IndexedDB open failed"));
+            }).catch(() => null);
+
+            return tileDbPromise;
+        }
+
+        async function putIndexedDbTile(url, blob) {
+            if (!url || !(blob instanceof Blob)) return false;
+            const db = await openTileDatabase();
+            if (!db) return false;
+
+            return new Promise((resolve) => {
+                try {
+                    const tx = db.transaction(TILE_DB_STORE, "readwrite");
+                    const store = tx.objectStore(TILE_DB_STORE);
+                    store.put({
+                        blob,
+                        savedAt: Date.now(),
+                    }, url);
+                    tx.oncomplete = () => resolve(true);
+                    tx.onerror = () => resolve(false);
+                } catch {
+                    resolve(false);
+                }
+            });
+        }
+
+        async function getIndexedDbTile(url) {
+            if (!url) return null;
+            const db = await openTileDatabase();
+            if (!db) return null;
+
+            return new Promise((resolve) => {
+                try {
+                    const tx = db.transaction(TILE_DB_STORE, "readonly");
+                    const store = tx.objectStore(TILE_DB_STORE);
+                    const request = store.get(url);
+                    request.onsuccess = () => {
+                        const row = request.result;
+                        resolve(row?.blob instanceof Blob ? row.blob : null);
+                    };
+                    request.onerror = () => resolve(null);
+                } catch {
+                    resolve(null);
+                }
+            });
+        }
+
+        function hasOfflineTileCoverageForLocation(lat, lng) {
+            if (!Number.isFinite(lat) || !Number.isFinite(lng) || !offlineTilePacks.length) return false;
+            return offlineTilePacks.some((pack) => {
+                const dist = distanceKm(lat, lng, pack.center.lat, pack.center.lng);
+                return dist <= (pack.radiusKm * 1.25);
+            });
+        }
+
+        function hasOfflineTileCoverage() {
+            if (!offlineTilePacks.length) return false;
+            if (!userLocation) return true;
+            return hasOfflineTileCoverageForLocation(userLocation.lat, userLocation.lng);
+        }
+
+        function findNearbyShelterForLocation(lat, lng, maxDistanceKm = 0.2) {
+            const shelters = Array.isArray(latestShelterItems) ? latestShelterItems : [];
+            if (!shelters.length || !Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return null;
+
+            let closest = null;
+            for (const shelter of shelters) {
+                const shelterLat = Number(shelter.latitude);
+                const shelterLng = Number(shelter.longitude);
+                if (!Number.isFinite(shelterLat) || !Number.isFinite(shelterLng)) continue;
+
+                const distance = distanceKm(Number(lat), Number(lng), shelterLat, shelterLng);
+                if (distance > maxDistanceKm) continue;
+                if (!closest || distance < closest.distanceKm) {
+                    closest = { shelter, distanceKm: distance };
+                }
+            }
+
+            return closest;
+        }
+
+        function isOfflineViewportCovered() {
+            if (!offlineTilePacks.length) return false;
+            if (!onlineMap) return hasOfflineTileCoverage();
+
+            try {
+                const center = onlineMap.getCenter();
+                if (!hasOfflineTileCoverageForLocation(center.lat, center.lng)) return false;
+
+                const bounds = onlineMap.getBounds();
+                const samples = [
+                    center,
+                    L.latLng(bounds.getNorth(), center.lng),
+                    L.latLng(bounds.getSouth(), center.lng),
+                    L.latLng(center.lat, bounds.getEast()),
+                    L.latLng(center.lat, bounds.getWest())
+                ];
+                return samples.every((point) => hasOfflineTileCoverageForLocation(point.lat, point.lng));
+            } catch {
+                return hasOfflineTileCoverage();
+            }
+        }
+
+        function normalizeLongitude(lng) {
+            const value = Number(lng);
+            if (!Number.isFinite(value)) return 0;
+            return ((value + 180) % 360 + 360) % 360 - 180;
+        }
+
+        function clampLatitude(lat) {
+            const value = Number(lat);
+            if (!Number.isFinite(value)) return 0;
+            return Math.min(85.05112878, Math.max(-85.05112878, value));
+        }
+
+        function latLngToTileXY(lat, lng, zoom) {
+            const z = Math.max(0, Number(zoom) || 0);
+            const n = 2 ** z;
+            const x = Math.floor(((normalizeLongitude(lng) + 180) / 360) * n);
+            const latRad = clampLatitude(lat) * Math.PI / 180;
+            const y = Math.floor(
+                (1 - Math.log(Math.tan(latRad) + (1 / Math.cos(latRad))) / Math.PI) / 2 * n
+            );
+            return {
+                x: Math.min(n - 1, Math.max(0, x)),
+                y: Math.min(n - 1, Math.max(0, y)),
+            };
+        }
+
+        function tileUrlFromSource(source, z, x, y) {
+            if (!source || !source.url) return "";
+            let subdomain = "";
+            if (source.options && source.options.subdomains) {
+                const subs = String(source.options.subdomains).split("");
+                subdomain = subs[(x + y) % subs.length] || "";
+            }
+            return source.url
+                .replace("{s}", subdomain)
+                .replace("{z}", String(z))
+                .replace("{x}", String(x))
+                .replace("{y}", String(y))
+                .replace("{r}", "");
+        }
+
+        function getCandidateTileUrlsForCoords(coords, preferredUrl = "") {
+            const candidates = [];
+            const seen = new Set();
+            const add = (url) => {
+                if (!url || seen.has(url)) return;
+                seen.add(url);
+                candidates.push(url);
+            };
+
+            add(preferredUrl);
+
+            const preferredSource = ONLINE_TILE_SOURCES[Math.min(onlineTileSourceIndex, ONLINE_TILE_SOURCES.length - 1)];
+            if (preferredSource) add(tileUrlFromSource(preferredSource, coords.z, coords.x, coords.y));
+
+            for (const source of ONLINE_TILE_SOURCES) {
+                add(tileUrlFromSource(source, coords.z, coords.x, coords.y));
+            }
+            return candidates;
+        }
+
+        async function findIndexedDbTileBlobForCoords(coords, preferredUrl = "") {
+            const candidates = getCandidateTileUrlsForCoords(coords, preferredUrl);
+            for (const url of candidates) {
+                const blob = await getIndexedDbTile(url);
+                if (blob) return blob;
+            }
+            return null;
+        }
+
+        async function downloadTilesViaIndexedDb(urls) {
+            const uniqueUrls = [...new Set(urls)].filter((url) => typeof url === "string" && url.startsWith("http"));
+            const total = uniqueUrls.length;
+            if (!total) return { completed: 0, failed: 0, total: 0 };
+
+            let cursor = 0;
+            let completed = 0;
+            let failed = 0;
+            const concurrency = Math.min(8, total);
+
+            const worker = async () => {
+                while (cursor < total) {
+                    const idx = cursor++;
+                    const url = uniqueUrls[idx];
+                    try {
+                        const response = await fetch(url, {
+                            cache: "no-store",
+                            mode: "cors",
+                            credentials: "omit",
+                            referrerPolicy: "strict-origin-when-cross-origin",
+                        });
+                        if (!response.ok) {
+                            failed += 1;
+                        } else {
+                            const contentType = response.headers.get("content-type") || "";
+                            if (!contentType.includes("image")) {
+                                failed += 1;
+                            } else {
+                                const blob = await response.blob();
+                                const saved = await putIndexedDbTile(url, blob);
+                                if (saved) completed += 1;
+                                else failed += 1;
+                            }
+                        }
+                    } catch {
+                        failed += 1;
+                    }
+
+                    const done = completed + failed;
+                    if (done % 15 === 0 || done === total) {
+                        setStatus(`Downloading offline tiles: ${done}/${total} (${completed} saved, ${failed} failed)`);
+                    }
+                }
+            };
+
+            await Promise.all(Array.from({ length: concurrency }, () => worker()));
+            return { completed, failed, total };
+        }
+
+        function buildOfflineTileUrls(centerLat, centerLng, radiusKm) {
+            const latPad = radiusKm / 111.32;
+            const lngPad = radiusKm / (111.32 * Math.max(0.2, Math.cos(centerLat * Math.PI / 180)));
+            const minLat = clampLatitude(centerLat - latPad);
+            const maxLat = clampLatitude(centerLat + latPad);
+            const minLng = normalizeLongitude(centerLng - lngPad);
+            const maxLng = normalizeLongitude(centerLng + lngPad);
+
+            const preferredSource = ONLINE_TILE_SOURCES[Math.min(onlineTileSourceIndex, ONLINE_TILE_SOURCES.length - 1)]
+                || ONLINE_TILE_SOURCES[0];
+            const fallbackSource = ONLINE_TILE_SOURCES[ONLINE_TILE_SOURCES.length - 1];
+            const urls = new Set();
+
+            for (const z of OFFLINE_TILE_ZOOMS) {
+                const nw = latLngToTileXY(maxLat, minLng, z);
+                const se = latLngToTileXY(minLat, maxLng, z);
+                const xMin = Math.min(nw.x, se.x);
+                const xMax = Math.max(nw.x, se.x);
+                const yMin = Math.min(nw.y, se.y);
+                const yMax = Math.max(nw.y, se.y);
+
+                for (let x = xMin; x <= xMax; x += 1) {
+                    for (let y = yMin; y <= yMax; y += 1) {
+                        const primary = tileUrlFromSource(preferredSource, z, x, y);
+                        if (primary) urls.add(primary);
+                        // Keep one durable fallback provider copy for offline reuse.
+                        const backup = tileUrlFromSource(fallbackSource, z, x, y);
+                        if (backup) urls.add(backup);
+                    }
+                }
+            }
+
+            return [...urls];
+        }
+
+        function onMapServiceWorkerMessage(event) {
+            const data = event.data || {};
+            if (data.type === "TILE_DOWNLOAD_PROGRESS") {
+                const doneCount = Number(data.completed || 0) + Number(data.failed || 0);
+                const total = Number(data.total || 0);
+                setStatus(`Downloading offline tiles: ${doneCount}/${total} (${data.completed || 0} saved, ${data.failed || 0} failed)`);
+            } else if (data.type === "TILE_DOWNLOAD_DONE") {
+                const completed = Number(data.completed || 0);
+                const failed = Number(data.failed || 0);
+                const total = Number(data.total || 0);
+                tileDownloadInProgress = false;
+                if (completed > 0) {
+                    showToast("Offline Map Ready", `${completed}/${total} tiles downloaded${failed ? ` (${failed} failed)` : ""}.`);
+                } else {
+                    showToast("Offline Map Failed", "No map tiles could be downloaded.");
+                }
+                if (tileDownloadResolve) {
+                    tileDownloadResolve({ completed, failed, total });
+                    tileDownloadResolve = null;
+                    tileDownloadReject = null;
+                }
+                if (userLocation) refreshMap();
+            }
+        }
+
+        function updateOfflineDownloadAvailability() {
+            if (!offlineDownloadBtnEl || !offlineRadiusSelectEl) return;
+            const swSupported = ("serviceWorker" in navigator) && location.protocol !== "file:" && window.isSecureContext;
+            const indexedDbSupported = ("indexedDB" in window) && location.protocol !== "file:";
+            const supported = swSupported || indexedDbSupported;
+            offlineDownloadBtnEl.disabled = !supported;
+            offlineRadiusSelectEl.disabled = !supported;
+
+            if (supported) {
+                offlineDownloadBtnEl.title = swSupported
+                    ? "Download selected area for offline street-map view"
+                    : "Download using IndexedDB fallback (service worker unavailable)";
+                return;
+            }
+
+            const reason = !("serviceWorker" in navigator)
+                ? "Browser does not support service workers and IndexedDB fallback is unavailable"
+                : (location.protocol === "file:"
+                    ? "Open app over HTTP/HTTPS, not file://"
+                    : "Offline tile download requires secure context (HTTPS/localhost) or IndexedDB fallback support");
+            offlineDownloadBtnEl.title = reason;
+        }
+
+        async function registerMapServiceWorker() {
+            if (!("serviceWorker" in navigator)) {
+                mapServiceWorkerError = "Browser does not support service workers.";
+                return false;
+            }
+            if (location.protocol === "file:") {
+                mapServiceWorkerError = "Offline tile download requires HTTP/HTTPS. file:// is blocked by browser policy.";
+                return false;
+            }
+            if (!window.isSecureContext) {
+                mapServiceWorkerError = "Use HTTPS or http://localhost to enable offline tile download.";
+                return false;
+            }
+            if (mapServiceWorkerRegistered) return true;
+
+            try {
+                await navigator.serviceWorker.register("./map-sw.js");
+                await navigator.serviceWorker.ready;
+                navigator.serviceWorker.addEventListener("message", onMapServiceWorkerMessage);
+                mapServiceWorkerRegistered = true;
+                mapServiceWorkerError = "";
+                return true;
+            } catch (err) {
+                mapServiceWorkerRegistered = false;
+                mapServiceWorkerError = err?.message || "Service worker registration failed.";
+                return false;
+            }
+        }
+
+        async function triggerTileDownload(urls) {
+            if (!Array.isArray(urls) || !urls.length) {
+                return { completed: 0, failed: 0, total: 0 };
+            }
+            const ready = await registerMapServiceWorker();
+            if (!ready) throw new Error(mapServiceWorkerError || "Service worker unavailable");
+
+            const worker = navigator.serviceWorker.controller
+                || (await navigator.serviceWorker.ready).active;
+            if (!worker) throw new Error("service worker controller unavailable");
+
+            return new Promise((resolve, reject) => {
+                tileDownloadResolve = resolve;
+                tileDownloadReject = reject;
+                worker.postMessage({ type: "DOWNLOAD_TILES", urls });
+                setTimeout(() => {
+                    if (tileDownloadResolve) {
+                        tileDownloadResolve = null;
+                        tileDownloadReject = null;
+                        reject(new Error("tile download timeout"));
+                    }
+                }, 240000);
+            });
+        }
+
+        async function downloadOfflineMapArea() {
+            if (tileDownloadInProgress) {
+                showToast("Offline Download", "A tile download is already running.");
+                return;
+            }
+            if (!userLocation) {
+                showToast("Location Required", "Please recenter map before downloading offline area.");
+                return;
+            }
+            if (!navigator.onLine) {
+                showToast("Offline", "Connect to internet once to download tile pack.");
+                return;
+            }
+
+            const radiusKm = Number(offlineRadiusSelectEl?.value || 20);
+            const urls = buildOfflineTileUrls(userLocation.lat, userLocation.lng, radiusKm);
+            if (!urls.length) {
+                showToast("Offline Download", "No tile URLs generated for this area.");
+                return;
+            }
+
+            tileDownloadInProgress = true;
+            setStatus(`Preparing offline tile download for ${radiusKm} km area (${urls.length} tiles)...`);
+            showToast("Offline Download", `Starting ${urls.length} tile downloads for ${radiusKm} km area.`);
+
+            try {
+                let result = null;
+                let usedIndexedDbFallback = false;
+
+                try {
+                    result = await triggerTileDownload(urls);
+                } catch (swErr) {
+                    const canFallbackToIndexedDb = ("indexedDB" in window) && location.protocol !== "file:";
+                    if (!canFallbackToIndexedDb) throw swErr;
+
+                    usedIndexedDbFallback = true;
+                    showToast("Offline Download", "Service worker unavailable. Switching to IndexedDB fallback.");
+                    result = await downloadTilesViaIndexedDb(urls);
+                    tileDownloadInProgress = false;
+                }
+
+                if (result.completed > 0) {
+                    rememberOfflineTilePack(userLocation.lat, userLocation.lng, radiusKm);
+                    if (usedIndexedDbFallback) {
+                        showToast(
+                            "Offline Map Ready",
+                            `${result.completed}/${result.total} tiles saved in IndexedDB${result.failed ? ` (${result.failed} failed)` : ""}.`
+                        );
+                        setStatus(`Offline map ready via IndexedDB fallback: ${result.completed}/${result.total} tiles saved.`);
+                    }
+                } else {
+                    tileDownloadInProgress = false;
+                    setStatus("Offline tile download finished, but no tiles were saved.", true);
+                }
+            } catch (err) {
+                tileDownloadInProgress = false;
+                showToast("Offline Download Error", err?.message || "Failed to download offline tiles.");
+                setStatus(`Offline tile download failed: ${err?.message || "Please retry."}`, true);
+            }
+        }
+
+        function routeCacheKeyForShelter(shelter) {
+            if (!shelter) return "";
+            if (shelter.id !== undefined && shelter.id !== null) return `id:${shelter.id}`;
+            return `name:${String(shelter.name || "unknown").toLowerCase().trim()}`;
+        }
+
+        function routeStartDistanceFromUserKm(routeData) {
+            if (!userLocation || !Array.isArray(routeData?.geometry) || routeData.geometry.length < 1) return null;
+            const first = routeData.geometry[0];
+            const startLng = Number(first?.[0]);
+            const startLat = Number(first?.[1]);
+            if (!Number.isFinite(startLat) || !Number.isFinite(startLng)) return null;
+            return distanceKm(userLocation.lat, userLocation.lng, startLat, startLng);
+        }
+
+        function isRouteCacheUsable(routeData, maxStartDeltaKm = ROUTE_CACHE_MAX_START_DELTA_KM) {
+            const startDelta = routeStartDistanceFromUserKm(routeData);
+            if (!Number.isFinite(startDelta)) return true;
+            return startDelta <= Number(maxStartDeltaKm);
+        }
+
+        function sanitizeRouteData(routeData, shelter) {
+            const safeDistance = Number(routeData?.distance);
+            const safeDuration = Number(routeData?.duration);
+            const safeShelterLng = Number(shelter.longitude);
+            const safeShelterLat = Number(shelter.latitude);
+            const startLng = userLocation ? Number(userLocation.lng) : safeShelterLng;
+            const startLat = userLocation ? Number(userLocation.lat) : safeShelterLat;
+
+            const geometry = Array.isArray(routeData?.geometry)
+                ? routeData.geometry
+                    .map((pair) => [Number(pair?.[0]), Number(pair?.[1])])
+                    .filter((pair) => Number.isFinite(pair[0]) && Number.isFinite(pair[1]))
+                : [];
+
+            const fallbackGeometry = [
+                [startLng, startLat],
+                [safeShelterLng, safeShelterLat]
+            ].filter((pair) => Number.isFinite(pair[0]) && Number.isFinite(pair[1]));
+
+            const steps = Array.isArray(routeData?.steps)
+                ? routeData.steps
+                    .map((s) => ({
+                        instruction: String(s?.instruction || "").trim(),
+                        distance: Number(s?.distance) || 0
+                    }))
+                    .filter((s) => s.instruction)
+                : [];
+
+            const fallbackDistance = Number(shelter.distance_km) > 0 ? Number(shelter.distance_km) * 1000 : 0;
+            const fallbackDuration = Number(shelter.distance_km) > 0 ? estimateDriveMinutes(Number(shelter.distance_km)) * 60 : 0;
+
+            return {
+                distance: Number.isFinite(safeDistance) && safeDistance > 0 ? safeDistance : fallbackDistance,
+                duration: Number.isFinite(safeDuration) && safeDuration > 0 ? safeDuration : fallbackDuration,
+                geometry: geometry.length >= 2 ? geometry : fallbackGeometry,
+                steps
+            };
+        }
+
+        function routeQualityLimits(straightDistKm) {
+            if (!Number.isFinite(straightDistKm) || straightDistKm <= 0) {
+                return { maxDetourFactor: SHORT_ROUTE_MAX_DETOUR_FACTOR, maxSnapMeters: SHORT_ROUTE_MAX_SNAP_METERS };
+            }
+            if (straightDistKm <= VERY_NEAR_ROUTE_KM) {
+                return { maxDetourFactor: VERY_NEAR_MAX_DETOUR_FACTOR, maxSnapMeters: VERY_NEAR_MAX_SNAP_METERS };
+            }
+            if (straightDistKm <= SHORT_ROUTE_WALKING_MAX_KM) {
+                return { maxDetourFactor: NEAR_ROUTE_MAX_DETOUR_FACTOR, maxSnapMeters: NEAR_ROUTE_MAX_SNAP_METERS };
+            }
+            return { maxDetourFactor: SHORT_ROUTE_MAX_DETOUR_FACTOR, maxSnapMeters: SHORT_ROUTE_MAX_SNAP_METERS };
+        }
+
+        function buildDirectRouteData(shelter) {
+            if (!shelter || !userLocation) return null;
+            const straightKm = distanceKm(
+                Number(userLocation.lat),
+                Number(userLocation.lng),
+                Number(shelter.latitude),
+                Number(shelter.longitude)
+            );
+            const bearing = bearingDegrees(userLocation.lat, userLocation.lng, shelter.latitude, shelter.longitude);
+            const heading = bearingCardinal(bearing);
+            const distanceMeters = Math.max(1, Math.round(straightKm * 1000));
+            const etaMinutes = Math.max(1, Math.round((straightKm / 4.5) * 60)); // walking estimate
+
+            return sanitizeRouteData({
+                distance: distanceMeters,
+                duration: etaMinutes * 60,
+                geometry: [
+                    [Number(userLocation.lng), Number(userLocation.lat)],
+                    [Number(shelter.longitude), Number(shelter.latitude)]
+                ],
+                steps: [
+                    {
+                        instruction: `Head ${heading} (${Math.round(bearing)}°) toward ${shelter.name}`,
+                        distance: distanceMeters
+                    },
+                    {
+                        instruction: `Continue directly to ${shelter.name}`,
+                        distance: 0
+                    }
+                ]
+            }, shelter);
+        }
+
+        function buildOfflineRouteData(shelter) {
+            if (!shelter || !userLocation) return null;
+
+            const bearing = bearingDegrees(userLocation.lat, userLocation.lng, shelter.latitude, shelter.longitude);
+            const heading = bearingCardinal(bearing);
+            const eta = estimateDriveMinutes(shelter.distance_km);
+
+            return sanitizeRouteData({
+                distance: Number(shelter.distance_km) * 1000,
+                duration: eta * 60,
+                geometry: [
+                    [Number(userLocation.lng), Number(userLocation.lat)],
+                    [Number(shelter.longitude), Number(shelter.latitude)]
+                ],
+                steps: [
+                    {
+                        instruction: `Head ${heading} (${Math.round(bearing)}°) toward ${shelter.name}`,
+                        distance: Number(shelter.distance_km) * 1000
+                    },
+                    {
+                        instruction: `Continue until you reach ${shelter.name}`,
+                        distance: 0
+                    }
+                ]
+            }, shelter);
+        }
+
+        function prependUserLocationToRoute(routeData, startDeltaKm = null) {
+            if (!routeData || !userLocation) return routeData;
+            if (!Array.isArray(routeData.geometry) || routeData.geometry.length < 2) return routeData;
+
+            const first = routeData.geometry[0];
+            const firstLng = Number(first?.[0]);
+            const firstLat = Number(first?.[1]);
+            if (!Number.isFinite(firstLat) || !Number.isFinite(firstLng)) return routeData;
+
+            const deltaKm = Number.isFinite(startDeltaKm)
+                ? Number(startDeltaKm)
+                : distanceKm(userLocation.lat, userLocation.lng, firstLat, firstLng);
+            if (!Number.isFinite(deltaKm) || deltaKm <= ROUTE_CACHE_CONNECTOR_MIN_KM) return routeData;
+
+            const connectorMeters = Math.max(1, Math.round(deltaKm * 1000));
+            const connectorInstruction = `Proceed ${formatDistanceMeters(connectorMeters)} to rejoin the saved route`;
+
+            return {
+                ...routeData,
+                distance: Math.max(0, Number(routeData.distance) || 0) + connectorMeters,
+                geometry: [
+                    [Number(userLocation.lng), Number(userLocation.lat)],
+                    ...routeData.geometry
+                ],
+                steps: [
+                    {
+                        instruction: connectorInstruction,
+                        distance: connectorMeters
+                    },
+                    ...(Array.isArray(routeData.steps) ? routeData.steps : [])
+                ]
+            };
+        }
+
+        function saveRouteForShelter(shelter, routeData, source = "online") {
+            const key = routeCacheKeyForShelter(shelter);
+            if (!key || !shelter) return null;
+
+            const normalized = sanitizeRouteData(routeData, shelter);
+            const existing = savedRouteCache[key];
+            const sourceLabel = String(source || "").toLowerCase();
+            const incomingLooksFallback = sourceLabel.includes("offline") || sourceLabel.includes("fallback");
+            const incomingIsStraight = Array.isArray(normalized.geometry) && normalized.geometry.length <= 2;
+            const existingLooksRoadRoute = Array.isArray(existing?.geometry) && existing.geometry.length >= 3;
+
+            // Keep richer road geometry; don't overwrite with straight-line offline fallback.
+            if (incomingLooksFallback && incomingIsStraight && existingLooksRoadRoute) {
+                return existing;
+            }
+
+            savedRouteCache[key] = {
+                ...normalized,
+                source,
+                savedAt: Date.now(),
+                start: userLocation
+                    ? { lat: Number(userLocation.lat), lng: Number(userLocation.lng) }
+                    : null,
+                shelter: {
+                    id: shelter.id ?? null,
+                    name: shelter.name ?? "",
+                    latitude: Number(shelter.latitude),
+                    longitude: Number(shelter.longitude)
+                }
+            };
+
+            const allKeys = Object.keys(savedRouteCache);
+            if (allKeys.length > MAX_SAVED_ROUTES) {
+                const oldestKeys = allKeys
+                    .sort((a, b) => (savedRouteCache[a]?.savedAt || 0) - (savedRouteCache[b]?.savedAt || 0))
+                    .slice(0, allKeys.length - MAX_SAVED_ROUTES);
+                oldestKeys.forEach((oldKey) => {
+                    delete savedRouteCache[oldKey];
+                });
+            }
+
+            persistSavedRouteCache();
+            return savedRouteCache[key];
+        }
+
+        function getSavedRouteForShelter(shelter, options = {}) {
+            const allowStaleOffline = Boolean(options?.allowStaleOffline);
+            const key = routeCacheKeyForShelter(shelter);
+            if (!key) return null;
+            const cached = savedRouteCache[key];
+            if (!cached) return null;
+            const normalized = sanitizeRouteData(cached, shelter);
+
+            if (isRouteCacheUsable(normalized)) {
+                return normalized;
+            }
+
+            if (!allowStaleOffline) {
+                return null;
+            }
+
+            return buildOfflineRouteData(shelter);
+        }
+
+        function warmNearbyRoutesForOffline(shelters) {
+            if (!isOnlineMode || !navigator.onLine || !userLocation) return;
+            if (!Array.isArray(shelters) || !shelters.length) return;
+
+            const now = Date.now();
+            const nearest = shelters.slice(0, ROUTE_WARMUP_NEAREST_LIMIT);
+
+            for (const shelter of nearest) {
+                const key = routeCacheKeyForShelter(shelter);
+                if (!key || warmingRouteKeys.has(key)) continue;
+
+                const existing = savedRouteCache[key];
+                const hasRoadGeometry = Array.isArray(existing?.geometry) && existing.geometry.length >= 3;
+                if (hasRoadGeometry) continue;
+
+                const lastTriedAt = Number(routeWarmupTimestamps[key] || 0);
+                if (lastTriedAt > 0 && (now - lastTriedAt) < ROUTE_WARMUP_RETRY_DELAY_MS) continue;
+
+                warmingRouteKeys.add(key);
+                routeWarmupTimestamps[key] = now;
+
+                (async () => {
+                    try {
+                        const liveRoute = await fetchOnlineRoute(shelter);
+                        if (liveRoute?.profile === "direct") return;
+                        if (!Array.isArray(liveRoute?.geometry) || liveRoute.geometry.length < 3) return;
+                        saveRouteForShelter(shelter, liveRoute, "online-warmup");
+                    } catch {
+                        // warmup is best-effort only
+                    } finally {
+                        warmingRouteKeys.delete(key);
+                    }
+                })();
+            }
+        }
+
+        function applyStoredRouteGuidance(shelter, routeData, hintLabel = "Route guidance") {
+            if (!shelter || !routeData) return;
+            const drawn = drawRoutePolyline(routeData.geometry);
+            if (!drawn) drawRouteToShelter(shelter);
+            renderOnlineTbt(shelter, routeData, hintLabel);
+        }
+
+        function setStatus(message, isError = false) {
+            statusTextEl.textContent = message;
+            statusEl.classList.toggle("error", isError);
+        }
+
+        function updateAccuracyBadge() {
+            if (!accuracyBadgeEl) return;
+
+            if (Number.isFinite(locationAccuracyMeters)) {
+                accuracyBadgeEl.style.display = "inline-flex";
+                accuracyBadgeEl.textContent = `GPS ±${Math.round(locationAccuracyMeters)}m`;
+                accuracyBadgeEl.className = locationAccuracyMeters > LOCATION_LOW_ACCURACY_WARN_METERS
+                    ? "map-mode-badge map-badge-warn"
+                    : "map-mode-badge map-badge-good";
+                return;
+            }
+
+            if (isFallbackLocation) {
+                accuracyBadgeEl.style.display = "inline-flex";
+                accuracyBadgeEl.textContent = `Fallback ${activeFallbackLocationLabel || FALLBACK_CITY_LABEL}`;
+                accuracyBadgeEl.className = "map-mode-badge map-badge-warn";
+                return;
+            }
+
+            accuracyBadgeEl.style.display = "none";
+            accuracyBadgeEl.textContent = "";
+        }
+
+        function setConnectivityMode(isOnline) {
+            isOnlineMode = Boolean(isOnline);
+            modeLabelEl.textContent = isOnlineMode ? "Online" : "Offline";
+            modeLabelEl.classList.toggle("online", isOnlineMode);
+            if (!isOnlineMode) setMapSurface(false);
+        }
+
+        function getViewRadiusKm() {
+            return indiaWideView ? INDIA_VIEW_RADIUS_KM : localViewRadiusKm;
+        }
+
+        function requestOnlineViewportRefit() {
+            lockOnlineViewportToUser = true;
+        }
+
+        function updateAxisLabels() {
+            const radius = Math.round(getViewRadiusKm());
+            const suffix = indiaWideView ? "India" : `+${radius}km`;
+            axisNorthEl.textContent = `N ${suffix}`;
+            axisSouthEl.textContent = `S ${suffix}`;
+            axisWestEl.textContent = `W ${suffix}`;
+            axisEastEl.textContent = `E ${suffix}`;
+        }
+
+        function updateViewControls() {
+            zoomInBtnEl.disabled = indiaWideView;
+            zoomOutBtnEl.disabled = indiaWideView;
+            indiaViewBtnEl.textContent = indiaWideView ? "Local View" : "India View";
+            indiaViewBtnEl.className = indiaWideView ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm";
+        }
+
+        function adjustLocalZoom(scaleFactor, refreshNow = true) {
+            if (indiaWideView) return;
+            const nextRadius = Math.round(localViewRadiusKm * scaleFactor);
+            localViewRadiusKm = Math.min(MAX_VIEW_RADIUS_KM, Math.max(MIN_VIEW_RADIUS_KM, nextRadius));
+            requestOnlineViewportRefit();
+            updateAxisLabels();
+            if (refreshNow) refreshMap();
+        }
+
+        function zoomViewIn() {
+            adjustLocalZoom(1 / 1.5, true);
+        }
+
+        function zoomViewOut() {
+            adjustLocalZoom(1.5, true);
+        }
+
+        function toggleIndiaView() {
+            indiaWideView = !indiaWideView;
+            requestOnlineViewportRefit();
+            updateAxisLabels();
+            updateViewControls();
+            refreshMap();
+        }
+
+        function scheduleWheelRefresh() {
+            if (wheelZoomTimer) clearTimeout(wheelZoomTimer);
+            wheelZoomTimer = setTimeout(() => {
+                refreshMap();
+            }, 120);
+        }
+
+        function handleMapWheelZoom(event) {
+            if (!mapSurfaceEl.contains(event.target)) return;
+            if (mapSurfaceEl.classList.contains("online-surface") && onlineMap) {
+                event.preventDefault();
+                event.stopPropagation();
+                lockOnlineViewportToUser = false;
+                const containerPoint = typeof onlineMap.mouseEventToContainerPoint === "function"
+                    ? onlineMap.mouseEventToContainerPoint(event)
+                    : (() => {
+                        const rect = liveMapEl.getBoundingClientRect();
+                        return L.point(event.clientX - rect.left, event.clientY - rect.top);
+                    })();
+                const step = event.shiftKey ? 2 : 1;
+                const zoomDelta = event.deltaY < 0 ? step : -step;
+                const currentZoom = onlineMap.getZoom();
+                const minZoom = Number.isFinite(onlineMap.getMinZoom()) ? onlineMap.getMinZoom() : 0;
+                const maxZoom = Number.isFinite(onlineMap.getMaxZoom()) ? onlineMap.getMaxZoom() : 19;
+                const targetZoom = Math.max(minZoom, Math.min(maxZoom, currentZoom + zoomDelta));
+                onlineMap.setZoomAround(containerPoint, targetZoom, { animate: true });
+                return;
+            }
+            if (!userLocation) return;
+
+            event.preventDefault();
+            event.stopPropagation();
+            const zoomIn = event.deltaY < 0;
+
+            // Offline/local projection zoom via radius scaling.
+            adjustLocalZoom(zoomIn ? (1 / 1.5) : 1.5, false);
+            scheduleWheelRefresh();
+        }
+
+        function stopLocationWatch() {
+            if (locationWatchId !== null && navigator.geolocation) {
+                navigator.geolocation.clearWatch(locationWatchId);
+            }
+            locationWatchId = null;
+        }
+
+        function scheduleLocationRefresh() {
+            if (locationRefreshTimer) clearTimeout(locationRefreshTimer);
+            locationRefreshTimer = setTimeout(() => {
+                refreshMap();
+            }, 120);
+        }
+
+        function applyLocationPosition(pos) {
+            const nextLat = Number(pos?.coords?.latitude);
+            const nextLng = Number(pos?.coords?.longitude);
+            if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return false;
+
+            const nextAccuracy = Number.isFinite(Number(pos?.coords?.accuracy))
+                ? Number(pos.coords.accuracy)
+                : null;
+
+            const prev = userLocation;
+            const prevAccuracy = Number.isFinite(Number(locationAccuracyMeters))
+                ? Number(locationAccuracyMeters)
+                : null;
+            const movedKm = prev
+                ? distanceKm(Number(prev.lat), Number(prev.lng), nextLat, nextLng)
+                : Infinity;
+            const accuracyImproved = prevAccuracy === null
+                || (nextAccuracy !== null && nextAccuracy + 20 < prevAccuracy);
+            const shouldUpdate = !prev
+                || movedKm >= LOCATION_UPDATE_MIN_DISTANCE_KM
+                || accuracyImproved;
+            if (!shouldUpdate) return false;
+
+            userLocation = { lat: nextLat, lng: nextLng };
+            locationAccuracyMeters = nextAccuracy;
+            isFallbackLocation = false;
+            activeFallbackLocationLabel = "";
+            requestOnlineViewportRefit();
+            drawUserCenter();
+            updateAccuracyBadge();
+
+            if (pendingRecenterToast) {
+                const accuracyNote = Number.isFinite(locationAccuracyMeters)
+                    ? ` (±${Math.round(locationAccuracyMeters)} m)`
+                    : "";
+                showToast("📍 Recentered", `Map centered to your current location${accuracyNote}`);
+                pendingRecenterToast = false;
+            }
+            return true;
+        }
+
+        function beginLocationWatch() {
+            if (!navigator.geolocation) return;
+            if (locationWatchId !== null) return;
+
+            const watchPositionFn = window.DisasterLocation?.watchPrecisePosition
+                ? DisasterLocation.watchPrecisePosition
+                : navigator.geolocation.watchPosition.bind(navigator.geolocation);
+
+            locationWatchId = watchPositionFn(
+                (pos) => {
+                    const changed = applyLocationPosition(pos);
+                    if (changed) scheduleLocationRefresh();
+                },
+                (err) => {
+                    if (err && err.code === err.PERMISSION_DENIED) {
+                        stopLocationWatch();
+                    }
+                },
+                { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+            );
+        }
+
+        async function useFallbackLocation(reason = "denied") {
+            const fallback = cityCoords[FALLBACK_CITY_KEY] || { lat: 20.5937, lng: 78.9629 };
+            userLocation = {
+                lat: Number(fallback.lat),
+                lng: Number(fallback.lng)
+            };
+            locationAccuracyMeters = null;
+            isFallbackLocation = true;
+            activeFallbackLocationLabel = FALLBACK_CITY_LABEL;
+            requestOnlineViewportRefit();
+            drawUserCenter();
+            updateAccuracyBadge();
+            await refreshMap();
+
+            const message = reason === "unsupported"
+                ? `Geolocation not supported. Showing ${FALLBACK_CITY_LABEL} fallback view.`
+                : `Location unavailable. Showing ${FALLBACK_CITY_LABEL} fallback view.`;
+            setStatus(`${message} Tap Recenter after allowing location.`, false);
+        }
+
+        function canUseOnlineMap() {
+            if (!(window.L && liveMapEl && location.protocol !== "file:")) return false;
+            if (isOnlineMode) return true;
+            return hasOfflineTileCoverage();
+        }
+
+        function clearOnlineTileHealthTimer() {
+            if (!onlineTileCheckTimer) return;
+            clearTimeout(onlineTileCheckTimer);
+            onlineTileCheckTimer = null;
+        }
+
+        function resetOnlineTileHealthCounters() {
+            onlineTileLoadCount = 0;
+            onlineTileErrorCount = 0;
+            clearOnlineTileHealthTimer();
+        }
+
+        function createIndexedDbAwareTileLayer(source) {
+            const layer = L.tileLayer(source.url, source.options);
+            layer.createTile = function (coords, done) {
+                const tile = document.createElement("img");
+                tile.alt = "";
+                tile.setAttribute("role", "presentation");
+                tile.decoding = "async";
+                tile.loading = "lazy";
+                tile.crossOrigin = "anonymous";
+                tile.referrerPolicy = "strict-origin-when-cross-origin";
+
+                const primaryUrl = this.getTileUrl(coords);
+                let finished = false;
+                const finish = (err = null) => {
+                    if (finished) return;
+                    finished = true;
+                    done(err, tile);
+                };
+
+                const paintEmptyTile = () => {
+                    tile.onload = () => finish(new Error("tile missing"));
+                    tile.onerror = () => finish(new Error("tile missing"));
+                    tile.src = EMPTY_TILE_DATA_URL;
+                };
+
+                const paintBlob = (blob) => {
+                    const objectUrl = URL.createObjectURL(blob);
+                    tile.onload = () => {
+                        URL.revokeObjectURL(objectUrl);
+                        finish(null);
+                    };
+                    tile.onerror = () => {
+                        URL.revokeObjectURL(objectUrl);
+                        paintEmptyTile();
+                    };
+                    tile.src = objectUrl;
+                };
+
+                (async () => {
+                    const cachedBlob = await findIndexedDbTileBlobForCoords(coords, primaryUrl);
+                    if (cachedBlob) {
+                        paintBlob(cachedBlob);
+                        return;
+                    }
+
+                    // Try normal URL next; if SW cache exists it can still satisfy this even when offline.
+                    tile.onload = () => finish(null);
+                    tile.onerror = paintEmptyTile;
+                    tile.src = primaryUrl;
+                })().catch(() => paintEmptyTile());
+
+                return tile;
+            };
+            return layer;
+        }
+
+        function teardownOnlineMap() {
+            clearOnlineTileHealthTimer();
+            if (!onlineMap) {
+                onlineTileLayer = null;
+                onlineTileLayerMode = "online";
+                onlineAlertLayer = null;
+                onlineShelterLayer = null;
+                onlineUserMarker = null;
+                onlineRadiusCircle = null;
+                onlineRouteLine = null;
+                return;
+            }
+
+            if (onlineRouteLine) {
+                onlineMap.removeLayer(onlineRouteLine);
+                onlineRouteLine = null;
+            }
+            if (onlineTileLayer) {
+                onlineMap.removeLayer(onlineTileLayer);
+                onlineTileLayer = null;
+            }
+            if (onlineAlertLayer) onlineAlertLayer.clearLayers();
+            if (onlineShelterLayer) onlineShelterLayer.clearLayers();
+            onlineMap.remove();
+
+            onlineMap = null;
+            onlineTileLayerMode = "online";
+            onlineAlertLayer = null;
+            onlineShelterLayer = null;
+            onlineUserMarker = null;
+            onlineRadiusCircle = null;
+        }
+
+        function retryOnlineTilePipeline(notify = false) {
+            onlineTilesBlocked = false;
+            onlineTileSourceIndex = 0;
+            resetOnlineTileHealthCounters();
+            teardownOnlineMap();
+            if (notify) {
+                showToast("Retrying Online Map", "Trying available map providers again.");
+            }
+        }
+
+        function scheduleOnlineTileHealthCheck() {
+            clearOnlineTileHealthTimer();
+            onlineTileCheckTimer = setTimeout(() => {
+                if (!onlineMap || !onlineTileLayer) return;
+                if (onlineTileLoadCount < ONLINE_TILE_LOAD_MIN && onlineTileErrorCount >= ONLINE_TILE_ERROR_LIMIT) {
+                    switchOnlineTileSource("tile access denied");
+                }
+            }, 2500);
+        }
+
+        function mountOnlineTileLayer(notify = false, reason = "") {
+            if (!onlineMap) return false;
+            const source = ONLINE_TILE_SOURCES[onlineTileSourceIndex];
+            if (!source) return false;
+
+            if (onlineTileLayer) {
+                onlineMap.removeLayer(onlineTileLayer);
+                onlineTileLayer = null;
+            }
+
+            resetOnlineTileHealthCounters();
+            onlineTileLayer = isOnlineMode
+                ? L.tileLayer(source.url, source.options)
+                : createIndexedDbAwareTileLayer(source);
+            onlineTileLayerMode = isOnlineMode ? "online" : "offline";
+
+            if (isOnlineMode) {
+                onlineTileLayer.on("tileload", () => {
+                    onlineTileLoadCount += 1;
+                });
+                onlineTileLayer.on("tileerror", () => {
+                    onlineTileErrorCount += 1;
+                    if (onlineTileErrorCount >= ONLINE_TILE_ERROR_LIMIT && onlineTileLoadCount < ONLINE_TILE_LOAD_MIN) {
+                        switchOnlineTileSource("tile access denied");
+                    }
+                });
+            }
+            onlineTileLayer.addTo(onlineMap);
+            if (isOnlineMode) scheduleOnlineTileHealthCheck();
+
+            if (notify) {
+                const reasonNote = reason ? ` (${reason})` : "";
+                showToast("Map Provider Switched", `${source.name}${reasonNote}`);
+            }
+            return true;
+        }
+
+        function switchOnlineTileSource(reason = "") {
+            if (onlineTileSwitchInProgress) return;
+            onlineTileSwitchInProgress = true;
+
+            try {
+                if (onlineTileSourceIndex < ONLINE_TILE_SOURCES.length - 1) {
+                    onlineTileSourceIndex += 1;
+                    mountOnlineTileLayer(true, reason);
+                    return;
+                }
+
+                onlineTilesBlocked = true;
+                setStatus("Online map tiles are blocked by provider policy. Showing offline/local map view. Run app on localhost server or configure your own tile key.", true);
+                showToast("Tile Access Blocked", "Online tiles blocked (403). Switched to offline/local view.");
+                teardownOnlineMap();
+                setMapSurface(false);
+            } finally {
+                onlineTileSwitchInProgress = false;
+            }
+        }
+
+        function ensureOnlineMapReady() {
+            if (!canUseOnlineMap()) return false;
+            if (onlineTilesBlocked && isOnlineMode) return false;
+            if (onlineMap) {
+                const expectedMode = isOnlineMode ? "online" : "offline";
+                if (onlineTileLayerMode !== expectedMode) {
+                    mountOnlineTileLayer(false);
+                }
+                return true;
+            }
+
+            onlineMap = L.map("liveMap", {
+                zoomControl: true,
+                attributionControl: true,
+                dragging: true,
+                scrollWheelZoom: false,
+                doubleClickZoom: true,
+                touchZoom: true,
+                boxZoom: true,
+                keyboard: true
+            });
+            onlineMap.dragging.enable();
+            onlineMap.doubleClickZoom.enable();
+            onlineMap.touchZoom.enable();
+            onlineMap.boxZoom.enable();
+            onlineMap.keyboard.enable();
+            mountOnlineTileLayer(false);
+
+            onlineAlertLayer = L.layerGroup().addTo(onlineMap);
+            onlineShelterLayer = L.layerGroup().addTo(onlineMap);
+            onlineMap.on("movestart zoomstart", () => {
+                if (suppressOnlineViewportEvent) return;
+                lockOnlineViewportToUser = false;
+            });
+            onlineMap.on("moveend zoomend", () => {
+                if (suppressOnlineViewportEvent) return;
+                if (!isOnlineMode && !indiaWideView) {
+                    scheduleWheelRefresh();
+                }
+            });
+            return true;
+        }
+
+        function setMapSurface(useOnline) {
+            const showOnline = Boolean(useOnline && ensureOnlineMapReady());
+            mapSurfaceEl.classList.toggle("online-surface", showOnline);
+            legendEl.style.display = showOnline ? "none" : "flex";
+
+            if (showOnline && onlineMap) {
+                setTimeout(() => onlineMap.invalidateSize(), 0);
+            }
+            return showOnline;
+        }
+
+        function getAlertColor(alertText) {
+            if ((alertText || "").includes("Storm")) return "#8b5cf6";
+            if ((alertText || "").includes("Rain")) return "#3b82f6";
+            if ((alertText || "").includes("Flood")) return "#f59e0b";
+            return "#ef4444";
+        }
+
+        function getShelterColor(status) {
+            if (status === "full") return "#f59e0b";
+            if (status === "closed") return "#ef4444";
+            return "#10b981";
+        }
+
+        function clearOnlineRoute() {
+            if (onlineMap && onlineRouteLine) {
+                onlineMap.removeLayer(onlineRouteLine);
+                onlineRouteLine = null;
+            }
+        }
+
+        function drawOnlineRoute(pathCoords, fitBounds = false) {
+            if (!onlineMap || !Array.isArray(pathCoords) || pathCoords.length < 2) return false;
+            const latLngs = pathCoords
+                .map(([lng, lat]) => [Number(lat), Number(lng)])
+                .filter(([lat, lng]) => Number.isFinite(lat) && Number.isFinite(lng));
+            if (latLngs.length < 2) return false;
+
+            clearOnlineRoute();
+            onlineRouteLine = L.polyline(latLngs, {
+                color: "#60a5fa",
+                weight: 4,
+                opacity: 0.95
+            }).addTo(onlineMap);
+
+            if (fitBounds) {
+                onlineMap.fitBounds(onlineRouteLine.getBounds(), {
+                    padding: [32, 32],
+                    maxZoom: 14
+                });
+            }
+            return true;
+        }
+
+        function fitOnlineMapViewport(force = false) {
+            if (!onlineMap || !userLocation) return;
+            if (!force && !lockOnlineViewportToUser) return;
+
+            suppressOnlineViewportEvent = true;
+            if (indiaWideView) {
+                onlineMap.fitBounds(INDIA_BOUNDS, { padding: [20, 20], maxZoom: 7 });
+            } else {
+                const center = L.latLng(userLocation.lat, userLocation.lng);
+                const bounds = center.toBounds(getViewRadiusKm() * 2000);
+                onlineMap.fitBounds(bounds, { padding: [26, 26], maxZoom: 13 });
+            }
+
+            setTimeout(() => {
+                suppressOnlineViewportEvent = false;
+            }, 0);
+            lockOnlineViewportToUser = false;
+        }
+
+        function renderOnlineMapData() {
+            if (!setMapSurface(true) || !userLocation || !onlineMap || !onlineAlertLayer || !onlineShelterLayer) {
+                return false;
+            }
+            fitOnlineMapViewport();
+
+            if (!isOnlineMode && !indiaWideView && !isOfflineViewportCovered()) {
+                offlineViewportOutOfCoverage = true;
+                return false;
+            }
+            offlineViewportOutOfCoverage = false;
+
+            const userLatLng = [userLocation.lat, userLocation.lng];
+            const nearbyShelter = findNearbyShelterForLocation(userLocation.lat, userLocation.lng);
+            const userPopupHtml = nearbyShelter
+                ? `<strong>📍 You are already at ${escapeHtml(nearbyShelter.shelter.name)}</strong><br>${escapeHtml(nearbyShelter.shelter.location || "Location unavailable")}<br>${Number.isFinite(nearbyShelter.distanceKm) ? `Distance: ${Math.round(nearbyShelter.distanceKm * 1000)} m<br>` : ""}`
+                : `<strong>📍 You are here</strong><br>Lat: ${userLocation.lat.toFixed(5)}<br>Lng: ${userLocation.lng.toFixed(5)}<br>`;
+            const userTooltipText = nearbyShelter
+                ? `You are already at ${nearbyShelter.shelter.name}`
+                : "You are here";
+            if (!onlineUserMarker) {
+                const userPinIcon = L.divIcon({
+                    className: "user-pin-div-icon",
+                    html: `<span class="user-pin-marker" aria-label="Your location"></span>`,
+                    iconSize: [18, 24],
+                    iconAnchor: [9, 22],
+                    popupAnchor: [0, -18],
+                    tooltipAnchor: [0, -20]
+                });
+                onlineUserMarker = L.marker(userLatLng, {
+                    icon: userPinIcon,
+                    keyboard: true,
+                    title: "Your location"
+                }).addTo(onlineMap);
+                onlineUserMarker.bindTooltip(userTooltipText, {
+                    permanent: true,
+                    direction: "top",
+                    className: "map-user-tooltip",
+                    offset: [0, -18]
+                });
+                onlineUserMarker.on("click", () => {
+                    onlineUserMarker.openPopup();
+                });
+            } else {
+                onlineUserMarker.setLatLng(userLatLng);
+                onlineUserMarker.setTooltipContent(userTooltipText);
+            }
+            const accuracyText = Number.isFinite(locationAccuracyMeters)
+                ? `GPS accuracy: ±${Math.round(locationAccuracyMeters)} m`
+                : "GPS accuracy: unavailable";
+            onlineUserMarker.bindPopup(`${userPopupHtml}${accuracyText}`);
+            const viewRadiusKm = getViewRadiusKm();
+            if (indiaWideView) {
+                if (onlineRadiusCircle) {
+                    onlineMap.removeLayer(onlineRadiusCircle);
+                    onlineRadiusCircle = null;
+                }
+            } else if (!onlineRadiusCircle) {
+                onlineRadiusCircle = L.circle([userLocation.lat, userLocation.lng], {
+                    radius: viewRadiusKm * 1000,
+                    color: "#94a3b8",
+                    weight: 1.2,
+                    fillOpacity: 0.05
+                }).addTo(onlineMap);
+            } else {
+                onlineRadiusCircle.setLatLng([userLocation.lat, userLocation.lng]);
+                onlineRadiusCircle.setRadius(viewRadiusKm * 1000);
+            }
+
+            onlineAlertLayer.clearLayers();
+            onlineShelterLayer.clearLayers();
+
+            if (showAlertsLayer) {
+                for (const item of latestAlertItems) {
+                    const alertMarker = L.circleMarker([item.coords.lat, item.coords.lng], {
+                        radius: 7,
+                        color: getAlertColor(item.data.alert || ""),
+                        fillColor: getAlertColor(item.data.alert || ""),
+                        fillOpacity: 0.85,
+                        weight: 2,
+                        interactive: true
+                    }).bindPopup(
+                        `<strong>${escapeHtml(item.data.city)}</strong><br>${escapeHtml(item.data.alert || "Alert")}<br>${item.dist.toFixed(1)} km away`
+                    ).addTo(onlineAlertLayer);
+                    alertMarker.on("click", () => {
+                        alertMarker.openPopup();
+                    });
+                }
+            }
+
+            if (showSheltersLayer) {
+                for (const shelter of latestShelterItems) {
+                    const spots = (shelter.capacity || 0) - (shelter.current_occupancy || 0);
+                    const shelterMarker = L.circleMarker([shelter.latitude, shelter.longitude], {
+                        radius: 7,
+                        color: getShelterColor(shelter.status || "open"),
+                        fillColor: getShelterColor(shelter.status || "open"),
+                        fillOpacity: 0.85,
+                        weight: 2,
+                        interactive: true
+                    }).bindPopup(
+                        `<strong>${escapeHtml(shelter.name)}</strong><br>${escapeHtml(shelter.location || "")}<br>${shelter.distance_km.toFixed(1)} km away<br>Spots: ${spots}`
+                    ).addTo(onlineShelterLayer);
+                    shelterMarker.on("click", async () => {
+                        shelterMarker.openPopup();
+                        const idx = directionShelters.findIndex((s) => s.id === shelter.id);
+                        if (idx >= 0) {
+                            await focusShelterRoute(idx);
+                        }
+                    });
+                }
+            }
+
+            if (Array.isArray(activeRouteCoords) && activeRouteCoords.length > 1) {
+                drawOnlineRoute(activeRouteCoords, false);
+            }
+
+            return true;
+        }
+
+        function escapeHtml(value) {
+            return String(value)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#39;");
+        }
+
+        function formatDistanceMeters(distanceMeters) {
+            if (!Number.isFinite(distanceMeters)) return "0 m";
+            if (distanceMeters >= 1000) return `${(distanceMeters / 1000).toFixed(1)} km`;
+            return `${Math.max(1, Math.round(distanceMeters))} m`;
+        }
+
+        function formatDurationSeconds(durationSeconds) {
+            if (!Number.isFinite(durationSeconds)) return "0 min";
+            const mins = Math.max(1, Math.round(durationSeconds / 60));
+            if (mins < 60) return `${mins} min`;
+            const hr = Math.floor(mins / 60);
+            const rem = mins % 60;
+            return rem ? `${hr}h ${rem}m` : `${hr}h`;
+        }
+
+        function humanizeManeuver(step) {
+            const maneuver = step.maneuver || {};
+            const type = (maneuver.type || "continue").replace(/_/g, " ");
+            const modifier = maneuver.modifier ? ` ${maneuver.modifier}` : "";
+            const road = step.name ? ` on ${step.name}` : "";
+
+            if (maneuver.type === "depart") return `Start${road}`;
+            if (maneuver.type === "arrive") return "Arrive at destination";
+            if (maneuver.type === "roundabout" || maneuver.type === "rotary") {
+                const exit = maneuver.exit ? `, take exit ${maneuver.exit}` : "";
+                return `Enter roundabout${exit}${road}`;
+            }
+            return `${type.charAt(0).toUpperCase()}${type.slice(1)}${modifier}${road}`.trim();
+        }
+
+        function hideTbtPanel() {
+            tbtPanelEl.style.display = "none";
+            tbtHintEl.textContent = "";
+            tbtListEl.innerHTML = "";
+        }
+
+        function showOfflineGuidance(shelter, reason = "offline") {
+            if (!shelter || !userLocation) {
+                hideTbtPanel();
+                return;
+            }
+
+            const bearing = bearingDegrees(userLocation.lat, userLocation.lng, shelter.latitude, shelter.longitude);
+            const heading = bearingCardinal(bearing);
+            const eta = estimateDriveMinutes(shelter.distance_km);
+            const intro = reason === "routing-error"
+                ? "Live route service not reachable. Using offline local guidance."
+                : "Internet is unavailable. Using offline local guidance.";
+
+            tbtPanelEl.style.display = "block";
+            tbtHintEl.textContent = `${intro} (${shelter.name}, ${shelter.distance_km.toFixed(1)} km)`;
+            tbtListEl.innerHTML = `
+                <div class="tbt-step">
+                    <span>1. Head ${escapeHtml(heading)} (${Math.round(bearing)}°) toward ${escapeHtml(shelter.name)}</span>
+                    <span class="tbt-distance">${shelter.distance_km.toFixed(1)} km</span>
+                </div>
+                <div class="tbt-step">
+                    <span>2. Keep following local roads to the shelter.</span>
+                    <span class="tbt-distance">~${eta} min</span>
+                </div>
+            `;
+        }
+
+        function resolveCoords(place) {
+            if (!place) return null;
+            const shared = window.DisasterLocation?.resolveCity ? DisasterLocation.resolveCity(place) : null;
+            if (shared) return shared;
+            const key = place.toLowerCase();
+            for (const city in cityCoords) {
+                if (key.includes(city)) return cityCoords[city];
+            }
+            return null;
+        }
+
+        function resolveAlertCoords(alert) {
+            const lat = Number(alert?.latitude ?? alert?.lat);
+            const lng = Number(alert?.longitude ?? alert?.lng ?? alert?.lon);
+            if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                return { lat, lng };
+            }
+            return resolveCoords(alert?.city);
+        }
+
+        function distanceKm(lat1, lng1, lat2, lng2) {
+            const R = 6371;
+            const toRad = (d) => d * Math.PI / 180;
+            const dLat = toRad(lat2 - lat1);
+            const dLng = toRad(lng2 - lng1);
+            const a = Math.sin(dLat / 2) ** 2
+                + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+            return 2 * R * Math.asin(Math.sqrt(a));
+        }
+
+        function bearingDegrees(lat1, lng1, lat2, lng2) {
+            const toRad = (d) => d * Math.PI / 180;
+            const toDeg = (r) => (r * 180 / Math.PI + 360) % 360;
+            const dLng = toRad(lng2 - lng1);
+            const a = Math.sin(dLng) * Math.cos(toRad(lat2));
+            const b = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2))
+                - Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLng);
+            return toDeg(Math.atan2(a, b));
+        }
+
+        function bearingCardinal(deg) {
+            const dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+            return dirs[Math.round(deg / 45) % 8];
+        }
+
+        function estimateDriveMinutes(distanceKmValue) {
+            // rough emergency estimate at ~35 km/h urban mixed roads
+            return Math.max(1, Math.round((distanceKmValue / 35) * 60));
+        }
+
+        function kmOffsetFromUser(lat, lng) {
+            const latDiff = lat - userLocation.lat;
+            const lngDiff = lng - userLocation.lng;
+            const northKm = latDiff * 111.32;
+            const eastKm = lngDiff * (111.32 * Math.cos(userLocation.lat * Math.PI / 180));
+            return { northKm, eastKm };
+        }
+
+        function projectLocal(lat, lng, allowOutside = false) {
+            if (!userLocation) return null;
+            const viewRadiusKm = getViewRadiusKm();
+            const offset = kmOffsetFromUser(lat, lng);
+            const radialDistance = Math.sqrt((offset.northKm ** 2) + (offset.eastKm ** 2));
+            const outside = radialDistance > viewRadiusKm;
+
+            if (outside && !allowOutside) return null;
+
+            const effectiveDistance = outside ? radialDistance : viewRadiusKm;
+            const x = 50 + (offset.eastKm / effectiveDistance) * 44;
+            const y = 50 - (offset.northKm / effectiveDistance) * 44;
+
+            if (x < 2 || x > 98 || y < 2 || y > 98) return null;
+            return { x, y, radialDistance, outside };
+        }
+
+        function markerClassForAlert(alertText) {
+            if (alertText.includes("Storm")) return "map-alert-storm";
+            if (alertText.includes("Rain")) return "map-alert-rain";
+            if (alertText.includes("Flood")) return "map-alert-flood";
+            return "map-alert-heat";
+        }
+
+        function drawUserCenter() {
+            baseLayer.querySelectorAll(".map-radius-ring, .map-user-marker, .map-user-pulse, .map-user-label")
+                .forEach((el) => el.remove());
+
+            const nearbyShelter = findNearbyShelterForLocation(userLocation.lat, userLocation.lng);
+            const labelText = nearbyShelter
+                ? `You are already at ${nearbyShelter.shelter.name}`
+                : "You are here";
+
+            const ring = document.createElement("div");
+            ring.className = "map-radius-ring";
+            baseLayer.appendChild(ring);
+
+            const pulse = document.createElement("div");
+            pulse.className = "map-user-pulse";
+            baseLayer.appendChild(pulse);
+
+            const marker = document.createElement("div");
+            marker.className = "map-user-marker";
+            baseLayer.appendChild(marker);
+
+            const label = document.createElement("div");
+            label.className = "map-user-label";
+            label.textContent = labelText;
+            baseLayer.appendChild(label);
+        }
+
+        function addLocalMarker(layer, cls, lat, lng, tooltipHtml, allowOutside = false) {
+            const point = projectLocal(Number(lat), Number(lng), allowOutside);
+            if (!point) return false;
+            const radius = Math.round(getViewRadiusKm());
+
+            const marker = document.createElement("div");
+            marker.className = `map-marker ${cls}`;
+            if (point.outside) marker.classList.add("map-outside-radius");
+            marker.style.left = `${point.x}%`;
+            marker.style.top = `${point.y}%`;
+            marker.innerHTML = `<span class="tooltip">${tooltipHtml}<br>📏 ${point.radialDistance.toFixed(1)} km away${point.outside ? `<br>Outside ${radius} km radius` : ""}</span>`;
+            layer.appendChild(marker);
+            return true;
+        }
+
+        function clearRoute() {
+            routeLayer.innerHTML = "";
+            activeRouteCoords = [];
+            clearOnlineRoute();
+        }
+
+        function drawRouteLineToPoint(point) {
+            if (!point) {
+                clearRoute();
+                return;
+            }
+            routeLayer.innerHTML = `
+                <line class="map-route-line" x1="50" y1="50" x2="${point.x}" y2="${point.y}"></line>
+                <circle class="map-route-dot" cx="${point.x}" cy="${point.y}" r="0.9"></circle>
+            `;
+        }
+
+        function drawRouteToShelter(shelter) {
+            if (!shelter || !userLocation) return;
+            activeRouteCoords = [
+                [userLocation.lng, userLocation.lat],
+                [Number(shelter.longitude), Number(shelter.latitude)]
+            ];
+
+            if (mapSurfaceEl.classList.contains("online-surface")) {
+                if (drawOnlineRoute(activeRouteCoords, true)) return;
+            }
+
+            const point = projectLocal(shelter.latitude, shelter.longitude, true);
+            if (!point) {
+                clearRoute();
+                return;
+            }
+            drawRouteLineToPoint(point);
+        }
+
+        function drawRoutePolyline(pathCoords) {
+            if (!userLocation || !Array.isArray(pathCoords) || pathCoords.length < 2) return false;
+
+            activeRouteCoords = pathCoords.map(([lng, lat]) => [Number(lng), Number(lat)]);
+
+            if (mapSurfaceEl.classList.contains("online-surface")) {
+                return drawOnlineRoute(activeRouteCoords, true);
+            }
+
+            const projected = pathCoords
+                .map(([lng, lat]) => projectLocal(lat, lng, true))
+                .filter(Boolean);
+
+            if (projected.length < 2) return false;
+            const points = projected.map((p) => `${p.x},${p.y}`).join(" ");
+            const end = projected[projected.length - 1];
+            routeLayer.innerHTML = `
+                <polyline class="map-route-line" points="${points}" fill="none"></polyline>
+                <circle class="map-route-dot" cx="${end.x}" cy="${end.y}" r="0.9"></circle>
+            `;
+            return true;
+        }
+
+        function showTbtLoading(shelterName) {
+            tbtPanelEl.style.display = "block";
+            tbtHintEl.textContent = `Fetching live route to ${shelterName}...`;
+            tbtListEl.innerHTML = `
+                <div class="tbt-step">
+                    <span>Preparing turn-by-turn steps...</span>
+                    <span class="tbt-distance">...</span>
+                </div>
+            `;
+        }
+
+        function renderOnlineTbt(shelter, routeData, hintLabel = "Live route") {
+            const steps = Array.isArray(routeData.steps) ? routeData.steps.slice(0, 10) : [];
+            const totalDistance = formatDistanceMeters(routeData.distance);
+            const totalDuration = formatDurationSeconds(routeData.duration);
+
+            tbtPanelEl.style.display = "block";
+            tbtHintEl.textContent = `${hintLabel} to ${shelter.name} • ${totalDistance} • about ${totalDuration}`;
+
+            if (!steps.length) {
+                tbtListEl.innerHTML = `
+                    <div class="tbt-step">
+                        <span>Route ready. Follow this route on the map.</span>
+                        <span class="tbt-distance">${totalDistance}</span>
+                    </div>
+                `;
+                return;
+            }
+
+            tbtListEl.innerHTML = steps.map((step, idx) => `
+                <div class="tbt-step">
+                    <span>${idx + 1}. ${escapeHtml(step.instruction)}</span>
+                    <span class="tbt-distance">${formatDistanceMeters(step.distance)}</span>
+                </div>
+            `).join("");
+        }
+
+        async function fetchOnlineRoute(shelter) {
+            const straightDistKm = distanceKm(
+                Number(userLocation.lat),
+                Number(userLocation.lng),
+                Number(shelter.latitude),
+                Number(shelter.longitude)
+            );
+            const routeProfiles = Number.isFinite(straightDistKm) && straightDistKm <= SHORT_ROUTE_WALKING_MAX_KM
+                ? ["foot", "driving"]
+                : ["driving", "foot"];
+
+            try {
+                const route = await api("/map/route", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        start: { lat: Number(userLocation.lat), lng: Number(userLocation.lng) },
+                        end: { lat: Number(shelter.latitude), lng: Number(shelter.longitude) },
+                        preferred_profiles: routeProfiles,
+                    }),
+                });
+                return {
+                    distance: Number(route.distance || 0),
+                    duration: Number(route.duration || 0),
+                    geometry: Array.isArray(route.geometry) ? route.geometry : [],
+                    steps: Array.isArray(route.steps) ? route.steps : [],
+                    profile: route.profile || "driving",
+                    source_mode: route.mode || "online",
+                };
+            } catch (err) {
+                if (Number.isFinite(straightDistKm) && straightDistKm <= SHORT_ROUTE_WALKING_MAX_KM) {
+                    const direct = buildDirectRouteData(shelter);
+                    if (direct) {
+                        return { ...direct, profile: "direct", source_mode: "offline_fallback" };
+                    }
+                }
+                throw err;
+            }
+        }
+
+        async function openMapNavigation(index) {
+            const shelter = directionShelters[index];
+            if (!shelter || !userLocation) return;
+
+            selectedShelterId = shelter.id;
+
+            if (isOnlineMode) {
+                showTbtLoading(shelter.name);
+                try {
+                    const liveRoute = await fetchOnlineRoute(shelter);
+                    const isDirect = liveRoute.profile === "direct";
+                    const cachedLive = saveRouteForShelter(shelter, liveRoute, isDirect ? "online-direct" : "online");
+                    applyStoredRouteGuidance(shelter, cachedLive, isDirect ? "Direct local path" : "Live navigation");
+                    showToast(isDirect ? "Direct Path" : "Navigating", `${shelter.name} • ${isDirect ? "using direct guidance" : "live route loaded"}`);
+                    return;
+                } catch {
+                    // continue to saved/offline fallback
+                }
+            }
+
+            const savedRoute = getSavedRouteForShelter(shelter, { allowStaleOffline: true });
+            if (savedRoute) {
+                applyStoredRouteGuidance(shelter, savedRoute, "Saved offline navigation");
+                showToast("Offline Navigation", `${shelter.name} • using saved route`);
+                return;
+            }
+
+            const offlineRoute = buildOfflineRouteData(shelter);
+            if (!offlineRoute) {
+                showToast("Route Unavailable", "Unable to build route at the moment.");
+                return;
+            }
+
+            const cachedOffline = saveRouteForShelter(shelter, offlineRoute, "offline-generated");
+            applyStoredRouteGuidance(shelter, cachedOffline, "Offline navigation");
+            showToast("Offline Navigation", "No live route found. Generated and saved local route.");
+        }
+
+        async function saveShelterRoute(index) {
+            const shelter = directionShelters[index];
+            if (!shelter || !userLocation) return;
+
+            if (isOnlineMode) {
+                try {
+                    const liveRoute = await fetchOnlineRoute(shelter);
+                    const isDirect = liveRoute.profile === "direct";
+                    saveRouteForShelter(shelter, liveRoute, isDirect ? "online-direct" : "online");
+                    showToast("Route Saved", `${shelter.name} saved for offline use${isDirect ? " (direct path)" : ""}`);
+                    return;
+                } catch {
+                    // fallback to offline save
+                }
+            }
+
+            const offlineRoute = buildOfflineRouteData(shelter);
+            if (!offlineRoute) {
+                showToast("Route Save Failed", "Could not create a route to save.");
+                return;
+            }
+
+            saveRouteForShelter(shelter, offlineRoute, "offline-generated");
+            showToast("Route Saved", `${shelter.name} saved with offline guidance`);
+        }
+
+        async function focusShelterRoute(index) {
+            const shelter = directionShelters[index];
+            if (!shelter || !userLocation) return;
+
+            selectedShelterId = shelter.id;
+
+            if (!isOnlineMode) {
+                const savedRoute = getSavedRouteForShelter(shelter, { allowStaleOffline: true });
+                if (savedRoute) {
+                    applyStoredRouteGuidance(shelter, savedRoute, "Saved offline route preview");
+                    showToast("Offline Route", `${shelter.name} • using saved route`);
+                    return;
+                }
+                const offlineRoute = buildOfflineRouteData(shelter);
+                const cachedOffline = saveRouteForShelter(shelter, offlineRoute, "offline-preview");
+                applyStoredRouteGuidance(shelter, cachedOffline, "Offline route preview");
+                showToast("Offline Route", `${shelter.name} • preview saved locally`);
+                return;
+            }
+
+            showTbtLoading(shelter.name);
+
+            try {
+                const routeData = await fetchOnlineRoute(shelter);
+                const isDirect = routeData.profile === "direct";
+                const cachedLive = saveRouteForShelter(shelter, routeData, isDirect ? "online-direct" : "online");
+                applyStoredRouteGuidance(shelter, cachedLive, isDirect ? "Direct local path" : "Live route preview");
+                showToast(isDirect ? "Direct Path Ready" : "Live Route Ready", `${shelter.name} • ${formatDurationSeconds(routeData.duration)} • saved`);
+            } catch {
+                const fallbackRoute = buildOfflineRouteData(shelter);
+                const cachedFallback = saveRouteForShelter(shelter, fallbackRoute, "routing-fallback");
+                applyStoredRouteGuidance(shelter, cachedFallback, "Offline fallback route");
+                showToast("Offline Fallback", "Live routing unavailable. Local route saved.");
+            }
+        }
+
+        function renderShelterDirections() {
+            if (!userLocation) {
+                directionListEl.className = "direction-empty";
+                directionListEl.textContent = "Location needed to build shelter directions.";
+                hideTbtPanel();
+                return;
+            }
+
+            if (!directionShelters.length) {
+                directionListEl.className = "direction-empty";
+                directionListEl.textContent = sheltersWithoutCoords > 0
+                    ? `${sheltersWithoutCoords} open shelter(s) are missing latitude/longitude. Update coordinates in Shelters for accurate routes.`
+                    : "No shelters available for direction guidance.";
+                hideTbtPanel();
+                clearRoute();
+                selectedShelterId = null;
+                return;
+            }
+
+            const viewRadiusKm = getViewRadiusKm();
+            const inside = directionShelters.filter((s) => s.distance_km <= viewRadiusKm);
+            const outside = directionShelters.filter((s) => s.distance_km > viewRadiusKm);
+            const display = inside.length ? inside.slice(0, 4) : outside.slice(0, 4);
+            directionListEl.className = "";
+
+            directionListEl.innerHTML = display.map((shelter) => {
+                const idx = directionShelters.findIndex((x) => x.id === shelter.id);
+                const bearing = bearingDegrees(userLocation.lat, userLocation.lng, shelter.latitude, shelter.longitude);
+                const heading = bearingCardinal(bearing);
+                const eta = estimateDriveMinutes(shelter.distance_km);
+                const outsideLabel = shelter.distance_km > viewRadiusKm ? ` • outside ${Math.round(viewRadiusKm)} km` : "";
+                return `
+                    <div class="direction-row">
+                        <div>
+                            <div style="font-weight:700">${escapeHtml(shelter.name)}</div>
+                            <div class="direction-meta">
+                                ${shelter.distance_km.toFixed(1)} km • head ${heading} (${Math.round(bearing)}°) • ~${eta} min drive${outsideLabel}
+                            </div>
+                        </div>
+                        <div class="direction-actions">
+                            <button class="btn btn-secondary btn-sm" onclick="focusShelterRoute(${idx})">Route</button>
+                            <button class="btn btn-primary btn-sm" onclick="openMapNavigation(${idx})">Navigate</button>
+                            <button class="btn btn-secondary btn-sm" onclick="saveShelterRoute(${idx})">Save</button>
+                        </div>
+                    </div>
+                `;
+            }).join("");
+
+            if (selectedShelterId) {
+                const activeIdx = directionShelters.findIndex((s) => s.id === selectedShelterId);
+                if (activeIdx < 0) {
+                    selectedShelterId = null;
+                    hideTbtPanel();
+                    clearRoute();
+                } else if (!isOnlineMode) {
+                    const activeShelter = directionShelters[activeIdx];
+                    const savedRoute = getSavedRouteForShelter(activeShelter, { allowStaleOffline: true });
+                    if (savedRoute) {
+                        applyStoredRouteGuidance(activeShelter, savedRoute, "Saved offline route");
+                    } else {
+                        const offlineRoute = buildOfflineRouteData(activeShelter);
+                        const cachedOffline = saveRouteForShelter(activeShelter, offlineRoute, "offline-autosave");
+                        applyStoredRouteGuidance(activeShelter, cachedOffline, "Offline route");
+                    }
+                }
+            }
+        }
+
+        async function loadAlerts() {
+            alertLayer.innerHTML = "";
+            if (!userLocation) {
+                latestAlertItems = [];
+                alertsWithoutCoords = 0;
+                return 0;
+            }
+
+            let visible = 0;
+            try {
+                const viewRadiusKm = getViewRadiusKm();
+                const payload = await apiGet(
+                    `/map/alerts/nearby?lat=${encodeURIComponent(userLocation.lat)}&lng=${encodeURIComponent(userLocation.lng)}`
+                    + `&radius_km=${encodeURIComponent(viewRadiusKm)}&include_outside_if_empty=true&limit=120`
+                );
+                const rows = Array.isArray(payload?.items) ? payload.items : [];
+                const skippedWithoutCoords = Number(payload?.missing_coordinates || 0);
+
+                const nearby = [];
+                const outside = [];
+                for (const row of rows) {
+                    const coords = {
+                        lat: Number(row.latitude),
+                        lng: Number(row.longitude),
+                    };
+                    if (!Number.isFinite(coords.lat) || !Number.isFinite(coords.lng)) continue;
+                    const dist = Number(row.distance_km);
+                    const item = {
+                        data: {
+                            city: row.city,
+                            alert: row.alert,
+                            temperature: row.temperature,
+                            humidity: row.humidity,
+                            wind_speed: row.wind_speed,
+                            timestamp: row.timestamp,
+                        },
+                        coords,
+                        dist: Number.isFinite(dist)
+                            ? dist
+                            : distanceKm(userLocation.lat, userLocation.lng, coords.lat, coords.lng),
+                    };
+                    if (item.dist <= viewRadiusKm) nearby.push(item);
+                    else outside.push(item);
+                }
+
+                const sortedAll = [...nearby, ...outside].sort((a, b) => a.dist - b.dist);
+                const sortedOutside = outside.sort((a, b) => a.dist - b.dist);
+                latestAlertItems = indiaWideView
+                    ? sortedAll
+                    : (nearby.length ? nearby : sortedOutside.slice(0, 2));
+                alertsWithoutCoords = skippedWithoutCoords;
+
+                const primaryItems = indiaWideView ? sortedAll : nearby;
+                for (const item of primaryItems) {
+                    const added = addLocalMarker(
+                        alertLayer,
+                        markerClassForAlert(item.data.alert || ""),
+                        item.coords.lat,
+                        item.coords.lng,
+                        `<strong>${item.data.city}</strong><br>${item.data.alert}<br>🌡 ${item.data.temperature}°C · 💨 ${item.data.wind_speed} m/s`,
+                        indiaWideView
+                    );
+                    if (added) visible += 1;
+                }
+
+                if (!indiaWideView && visible === 0 && outside.length) {
+                    for (const item of sortedOutside.slice(0, 2)) {
+                        const added = addLocalMarker(
+                            alertLayer,
+                            markerClassForAlert(item.data.alert || ""),
+                            item.coords.lat,
+                            item.coords.lng,
+                            `<strong>${item.data.city}</strong><br>${item.data.alert}<br>🌡 ${item.data.temperature}°C · 💨 ${item.data.wind_speed} m/s`,
+                            true
+                        );
+                        if (added) visible += 1;
+                    }
+                }
+            } catch (err) {
+                latestAlertItems = [];
+                alertsWithoutCoords = 0;
+                showToast("⚠ Error", err.error || "Failed to load nearby alert markers");
+            }
+            return visible;
+        }
+
+        async function loadShelters() {
+            shelterLayer.innerHTML = "";
+            if (!userLocation) {
+                latestShelterItems = [];
+                sheltersWithoutCoords = 0;
+                return 0;
+            }
+
+            let visible = 0;
+            try {
+                const viewRadiusKm = getViewRadiusKm();
+                const payload = await apiGet(
+                    `/map/shelters/nearby?lat=${encodeURIComponent(userLocation.lat)}&lng=${encodeURIComponent(userLocation.lng)}`
+                    + `&radius_km=${encodeURIComponent(viewRadiusKm)}&limit=120`
+                );
+                sheltersWithoutCoords = Number(payload?.missing_coordinates || 0);
+
+                const shelters = (Array.isArray(payload?.items) ? payload.items : [])
+                    .map((s) => ({
+                        ...s,
+                        latitude: Number(s.latitude),
+                        longitude: Number(s.longitude),
+                        distance_km: Number(s.distance_km),
+                    }))
+                    .filter((s) => Number.isFinite(s.latitude) && Number.isFinite(s.longitude) && Number.isFinite(s.distance_km))
+                    .sort((a, b) => a.distance_km - b.distance_km);
+
+                directionShelters = shelters;
+                renderShelterDirections();
+                warmNearbyRoutesForOffline(shelters);
+
+                const nearby = shelters.filter((s) => Number(s.distance_km) <= viewRadiusKm);
+                const outside = shelters.filter((s) => Number(s.distance_km) > viewRadiusKm);
+                latestShelterItems = indiaWideView
+                    ? shelters
+                    : (nearby.length ? nearby : outside.slice(0, 3));
+
+                const primaryShelters = indiaWideView ? shelters : nearby;
+                for (const s of primaryShelters) {
+                    const coords = { lat: Number(s.latitude), lng: Number(s.longitude) };
+                    const spots = (s.capacity || 0) - (s.current_occupancy || 0);
+                    const added = addLocalMarker(
+                        shelterLayer,
+                        `map-shelter map-shelter-${s.status || "open"}`,
+                        coords.lat,
+                        coords.lng,
+                        `<strong>🏠 ${s.name}</strong><br>📍 ${s.location}<br>Status: ${(s.status || "open").toUpperCase()}<br>👥 ${s.current_occupancy}/${s.capacity} · 🪑 ${spots} spots`,
+                        indiaWideView
+                    );
+                    if (added) visible += 1;
+                }
+
+                if (!indiaWideView && visible === 0 && outside.length) {
+                    for (const s of outside.slice(0, 3)) {
+                        const coords = { lat: Number(s.latitude), lng: Number(s.longitude) };
+                        const spots = (s.capacity || 0) - (s.current_occupancy || 0);
+                        const added = addLocalMarker(
+                            shelterLayer,
+                            `map-shelter map-shelter-${s.status || "open"}`,
+                            coords.lat,
+                            coords.lng,
+                            `<strong>🏠 ${s.name}</strong><br>📍 ${s.location}<br>Status: ${(s.status || "open").toUpperCase()}<br>👥 ${s.current_occupancy}/${s.capacity} · 🪑 ${spots} spots`,
+                            true
+                        );
+                        if (added) visible += 1;
+                    }
+                }
+            } catch (err) {
+                directionShelters = [];
+                latestShelterItems = [];
+                sheltersWithoutCoords = 0;
+                renderShelterDirections();
+                showToast("⚠ Error", err.error || "Failed to load nearby shelter markers");
+            }
+            return visible;
+        }
+
+        async function manualRefreshMap() {
+            if (navigator.onLine && onlineTilesBlocked) {
+                retryOnlineTilePipeline(true);
+            }
+            await refreshMap();
+        }
+
+        async function refreshLocation() {
+            if (locationLookupInProgress) {
+                showToast("GPS Refresh", "Location lookup is already running.");
+                return;
+            }
+            stopLocationWatch();
+            pendingRecenterToast = true;
+            setStatus("Refreshing GPS location with high accuracy...");
+            showToast("GPS Refresh", "Trying to fetch a fresh high-accuracy location fix.");
+            updateAccuracyBadge();
+            detectLocation(true);
+        }
+
+        async function applyManualCityLocation() {
+            const rawCity = String(manualCityInputEl?.value || "").trim();
+            if (!rawCity) {
+                showToast("Manual Location", "Type a city name first.");
+                return;
+            }
+
+            const displayCity = rawCity
+                .replace(/\s+/g, " ")
+                .split(" ")
+                .filter(Boolean)
+                .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+                .join(" ");
+
+            const coords = resolveCoords(rawCity);
+            if (!coords) {
+                showToast("Manual Location", "City not found. Try Hyderabad, Mumbai, Delhi, Bengaluru, Chennai, or another supported city.");
+                setStatus("Enter a supported city name or use GPS Recenter.", true);
+                return;
+            }
+
+            stopLocationWatch();
+            locationLookupInProgress = false;
+            pendingRecenterToast = false;
+            userLocation = {
+                lat: Number(coords.lat),
+                lng: Number(coords.lng)
+            };
+            locationAccuracyMeters = null;
+            isFallbackLocation = true;
+            activeFallbackLocationLabel = displayCity;
+            requestOnlineViewportRefit();
+            drawUserCenter();
+            updateAccuracyBadge();
+            await refreshMap();
+            setStatus(`Showing manual location: ${displayCity}.`, false);
+            showToast("Manual Location", `Map centered to ${displayCity}.`);
+        }
+
+        async function refreshMap() {
+            if (!userLocation) {
+                setStatus("Location is required to show map view. Click Recenter and allow location.", true);
+                alertLayer.innerHTML = "";
+                shelterLayer.innerHTML = "";
+                directionShelters = [];
+                renderShelterDirections();
+                setMapSurface(false);
+                clearRoute();
+                return;
+            }
+
+            let alertsCount = 0;
+            let sheltersCount = 0;
+            offlineViewportOutOfCoverage = false;
+
+            if (showAlertsLayer) alertsCount = await loadAlerts();
+            sheltersCount = await loadShelters();
+            if (!isOnlineMode || (!indiaWideView && !hasOfflineTileCoverage())) {
+                drawUserCenter();
+            }
+
+            const preferLeafletSurface = isOnlineMode || (!indiaWideView && hasOfflineTileCoverage());
+            if (preferLeafletSurface) {
+                const onlineReady = renderOnlineMapData();
+                if (!onlineReady) setMapSurface(false);
+            } else {
+                setMapSurface(false);
+            }
+
+            const viewRadiusKm = getViewRadiusKm();
+            const viewScope = indiaWideView ? "India-wide view" : `${Math.round(viewRadiusKm)} km view`;
+            const coord = `${userLocation.lat.toFixed(4)}, ${userLocation.lng.toFixed(4)}`;
+            const usingOnlineSurface = mapSurfaceEl.classList.contains("online-surface");
+            const fileProtocolMode = location.protocol === "file:";
+            const modeCaption = usingOnlineSurface
+                ? (isOnlineMode ? "Online street map with live routing" : "Offline cached tiles with local guidance")
+                : (isOnlineMode
+                    ? (fileProtocolMode
+                        ? "Offline local view (open via localhost for live tiles)"
+                        : (onlineTilesBlocked ? "Offline fallback view (tile provider blocked)" : "Offline fallback view (tiles unavailable)"))
+                    : "Offline local view");
+            const accuracyCaption = Number.isFinite(locationAccuracyMeters) ? ` • GPS ±${Math.round(locationAccuracyMeters)} m` : "";
+            const fallbackNote = isFallbackLocation ? ` • Fallback ${activeFallbackLocationLabel || FALLBACK_CITY_LABEL}` : "";
+            const scopeCaption = indiaWideView ? "Scope India" : `Radius ${Math.round(viewRadiusKm)} km`;
+            captionEl.textContent = `${modeCaption} • Center ${coord} • ${scopeCaption}${accuracyCaption}${fallbackNote}`;
+            const locationNote = isFallbackLocation ? ` using fallback center (${activeFallbackLocationLabel || FALLBACK_CITY_LABEL})` : "";
+            const accuracyStatus = Number.isFinite(locationAccuracyMeters) ? ` GPS accuracy ±${Math.round(locationAccuracyMeters)} m.` : "";
+            const lowAccuracyStatus = Number.isFinite(locationAccuracyMeters) && locationAccuracyMeters > LOCATION_LOW_ACCURACY_WARN_METERS
+                ? ` GPS signal is weak (±${Math.round(locationAccuracyMeters)} m). Try Recenter near open sky or enable precise location.`
+                : "";
+            const coverageNotes = [];
+            if (showAlertsLayer && alertsWithoutCoords > 0) {
+                coverageNotes.push(`${alertsWithoutCoords} alert(s) skipped (unknown coordinates)`);
+            }
+            if (showSheltersLayer && sheltersWithoutCoords > 0) {
+                coverageNotes.push(`${sheltersWithoutCoords} open shelter(s) missing latitude/longitude`);
+            }
+            const coverageStatus = coverageNotes.length ? ` ${coverageNotes.join(" • ")}.` : "";
+            const protocolStatus = isOnlineMode && fileProtocolMode
+                ? " Live map tiles are disabled on file://. Open the app with http://localhost to get full online map."
+                : "";
+            const tileBlockedStatus = isOnlineMode && onlineTilesBlocked
+                ? " Tile provider blocked this session (403/referrer policy). Use localhost and your own map key/provider for stable live map."
+                : "";
+            const offlineTilesMissingStatus = (!isOnlineMode && !usingOnlineSurface && !indiaWideView)
+                ? (offlineViewportOutOfCoverage
+                    ? " Current map area is outside downloaded offline tiles. Pan back, click Recenter, or download this area for offline street-map view."
+                    : " Offline tiles not available for this area. Download a tile pack while online to get street-map view offline.")
+                : "";
+            const statusSuffix = `${accuracyStatus}${lowAccuracyStatus}${coverageStatus}${protocolStatus}${tileBlockedStatus}${offlineTilesMissingStatus}`;
+            const hasMapWarning = Boolean(lowAccuracyStatus || protocolStatus || tileBlockedStatus || offlineTilesMissingStatus);
+            if (alertsCount === 0 && sheltersCount === 0) {
+                setStatus(`No data in ${viewScope}${locationNote}. Showing nearest outside points when available (${isOnlineMode ? "online" : "offline"} mode).${statusSuffix}`, hasMapWarning);
+            } else {
+                setStatus(`Showing ${alertsCount} alert(s) and ${sheltersCount} shelter(s) in ${viewScope}${locationNote} (${isOnlineMode ? "online" : "offline"} mode).${statusSuffix}`, hasMapWarning);
+            }
+        }
+
+        function updateLayerToggles() {
+            const alertsBtn = document.getElementById("alertsBtn");
+            const sheltersBtn = document.getElementById("sheltersBtn");
+
+            alertLayer.style.display = showAlertsLayer ? "block" : "none";
+            shelterLayer.style.display = showSheltersLayer ? "block" : "none";
+
+            alertsBtn.className = showAlertsLayer ? "btn btn-danger btn-sm" : "btn btn-secondary btn-sm";
+            sheltersBtn.className = showSheltersLayer ? "btn btn-success btn-sm" : "btn btn-secondary btn-sm";
+        }
+
+        function toggleAlerts() {
+            showAlertsLayer = !showAlertsLayer;
+            updateLayerToggles();
+            refreshMap();
+        }
+
+        function toggleShelters() {
+            showSheltersLayer = !showSheltersLayer;
+            updateLayerToggles();
+            refreshMap();
+        }
+
+        function detectLocation(notify = false) {
+            if (!navigator.geolocation) {
+                stopLocationWatch();
+                pendingRecenterToast = false;
+                locationLookupInProgress = false;
+                useFallbackLocation("unsupported");
+                showToast("Fallback Location", `Using ${FALLBACK_CITY_LABEL} center because GPS is unavailable. You can also enter a city manually.`);
+                setStatus("Please enable High Accuracy Location (GPS ON) for better results, or enter a city manually.", true);
+                return;
+            }
+
+            if (locationLookupInProgress) return;
+
+            pendingRecenterToast = Boolean(notify);
+            locationLookupInProgress = true;
+            const detectLabel = indiaWideView
+                ? "India-wide map view"
+                : `nearest ${Math.round(getViewRadiusKm())} km map view`;
+            setStatus(`Detecting your location for ${detectLabel}...`);
+            const getPositionFn = window.DisasterLocation?.requestPrecisePosition
+                ? DisasterLocation.requestPrecisePosition
+                : (options = {}) => new Promise((resolve, reject) => {
+                    navigator.geolocation.getCurrentPosition(resolve, reject, options);
+                });
+
+            getPositionFn({ enableHighAccuracy: true, timeout: 20000, maximumAge: 0 })
+                .then(
+                async (pos) => {
+                    locationLookupInProgress = false;
+                    const changed = applyLocationPosition(pos);
+                    if (!changed && pendingRecenterToast) {
+                        const accuracyNote = Number.isFinite(locationAccuracyMeters)
+                            ? ` (±${Math.round(locationAccuracyMeters)} m)`
+                            : "";
+                        showToast("📍 Recentered", `Map centered to your current location${accuracyNote}`);
+                        pendingRecenterToast = false;
+                    }
+
+                    if (userLocation) {
+                        await refreshMap();
+                    }
+
+                    if (Number.isFinite(locationAccuracyMeters) && locationAccuracyMeters > LOCATION_LOW_ACCURACY_WARN_METERS) {
+                        setStatus(
+                            `Location detected, but GPS accuracy is low (±${Math.round(locationAccuracyMeters)} m). Keep the app open to refine location, or use a city manually if the pin is wrong.`,
+                            true
+                        );
+                        showToast("Low GPS Accuracy", "Tap Refresh Location or use the city field if this pin is wrong.");
+                    }
+                    beginLocationWatch();
+                },
+                async (geoErr) => {
+                    locationLookupInProgress = false;
+                    pendingRecenterToast = false;
+                    const denied = Boolean(geoErr && geoErr.code === geoErr.PERMISSION_DENIED);
+                    if (!denied) {
+                        setStatus("Could not get an instant GPS fix. Retrying live location tracking...");
+                        showToast("GPS Retry", "Please keep High Accuracy Location (GPS ON) enabled and try again.");
+                        beginLocationWatch();
+                        if (userLocation) {
+                            await refreshMap();
+                            return;
+                        }
+                    }
+
+                    stopLocationWatch();
+                    baseLayer.querySelectorAll(".map-user-marker, .map-radius-ring, .map-user-pulse, .map-user-label")
+                        .forEach((el) => el.remove());
+                    directionShelters = [];
+                    locationAccuracyMeters = null;
+                    renderShelterDirections();
+                    setMapSurface(false);
+                    clearRoute();
+                    await useFallbackLocation("denied");
+                    showToast("Fallback Location", `Location permission denied. Showing ${FALLBACK_CITY_LABEL} center. You can enter a city manually.`);
+                    setStatus("Please enable High Accuracy Location (GPS ON) for better results, or enter a city manually.", true);
+                }
+            );
+        }
+
+        async function handleConnectivityChange(online) {
+            const wasOnline = isOnlineMode;
+            setConnectivityMode(online);
+
+            if (online && !wasOnline) {
+                showToast("Online Mode", "Live turn-by-turn is now available.");
+            }
+            if (online && onlineTilesBlocked) {
+                retryOnlineTilePipeline(true);
+            } else if (!online && wasOnline) {
+                showToast("Offline Mode", "Switched to local offline guidance.");
+            }
+
+            if (!selectedShelterId || !directionShelters.length) {
+                if (userLocation) refreshMap();
+                return;
+            }
+
+            const idx = directionShelters.findIndex((s) => s.id === selectedShelterId);
+            if (idx < 0) {
+                selectedShelterId = null;
+                hideTbtPanel();
+                clearRoute();
+                if (userLocation) refreshMap();
+                return;
+            }
+
+            if (online) {
+                await focusShelterRoute(idx);
+            } else {
+                const shelter = directionShelters[idx];
+                const savedRoute = getSavedRouteForShelter(shelter, { allowStaleOffline: true });
+                if (savedRoute) {
+                    applyStoredRouteGuidance(shelter, savedRoute, "Saved offline route");
+                } else {
+                    const offlineRoute = buildOfflineRouteData(shelter);
+                    const cachedOffline = saveRouteForShelter(shelter, offlineRoute, "offline-autosave");
+                    applyStoredRouteGuidance(shelter, cachedOffline, "Offline route");
+                }
+            }
+
+            if (userLocation) refreshMap();
+        }
+
+        setConnectivityMode(navigator.onLine);
+        updateLayerToggles();
+        updateAxisLabels();
+        updateViewControls();
+        updateOfflineDownloadAvailability();
+        liveMapEl.addEventListener("wheel", handleMapWheelZoom, { passive: false, capture: true });
+        mapSurfaceEl.addEventListener("wheel", handleMapWheelZoom, { passive: false });
+        window.addEventListener("online", () => { handleConnectivityChange(true); });
+        window.addEventListener("offline", () => { handleConnectivityChange(false); });
+        registerMapServiceWorker().then((registered) => {
+            updateOfflineDownloadAvailability();
+            if (!registered) {
+                const canUseIndexedDbFallback = ("indexedDB" in window) && location.protocol !== "file:";
+                if (canUseIndexedDbFallback) {
+                    showToast("Offline Cache", "Service worker unavailable. IndexedDB fallback is enabled for offline tile downloads.");
+                } else {
+                    showToast("Offline Cache", mapServiceWorkerError || "Tile cache service worker not available in this browser session.");
+                }
+            }
+            detectLocation(false);
+        });
+        setInterval(() => {
+            if (userLocation) refreshMap();
+        }, 30000);
+        updateAccuracyBadge();
+    </script>
+
+</body>
+
+</html>

@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Disaster Monitoring Dashboard</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<style>
+
+body{
+    font-family: Arial;
+    margin:0;
+    background:#f4f6f9;
+}
+
+.header{
+    background:#2c3e50;
+    color:white;
+    padding:15px;
+    text-align:center;
+}
+
+.cards{
+    display:flex;
+    justify-content:space-around;
+    margin:20px;
+}
+
+.card{
+    background:white;
+    padding:20px;
+    width:180px;
+    text-align:center;
+    border-radius:10px;
+    box-shadow:0 2px 6px rgba(0,0,0,0.2);
+}
+
+.chart-container{
+    width:600px;
+    margin:auto;
+}
+
+#map{
+    height:400px;
+    margin:20px;
+}
+
+</style>
+</head>
+
+<body>
+    <div id="notification" style="
+position:fixed;
+top:20px;
+right:20px;
+background:#e74c3c;
+color:white;
+padding:15px;
+border-radius:8px;
+display:none;
+box-shadow:0 4px 8px rgba(0,0,0,0.3);
+">
+🚨 New Disaster Alert!
+</div>
+
+<div class="header">
+<h2>🌍 Disaster Monitoring Dashboard</h2>
+</div>
+
+<div class="cards">
+
+<div class="card">
+<h3 id="heatwaves">0</h3>
+<p>🔥 Heatwaves</p>
+</div>
+
+<div class="card">
+<h3 id="storms">0</h3>
+<p>🌪 Storms</p>
+</div>
+
+<div class="card">
+<h3 id="rains">0</h3>
+<p>🌧 Rain Alerts</p>
+</div>
+
+<div class="card">
+<h3 id="floods">0</h3>
+<p>⚠ Flood Risks</p>
+</div>
+
+</div>
+
+<div class="chart-container">
+<canvas id="alertChart"></canvas>
+</div>
+
+<div id="map"></div>
+
+<script>
+
+async function loadDashboard(){
+
+const res = await fetch("/dashboard/stats");
+const data = await res.json();
+
+document.getElementById("heatwaves").innerText = data.heatwave_alerts;
+document.getElementById("storms").innerText = data.storm_alerts;
+document.getElementById("rains").innerText = data.rain_alerts;
+document.getElementById("floods").innerText = data.flood_alerts;
+
+const ctx = document.getElementById("alertChart");
+
+new Chart(ctx,{
+type:"bar",
+data:{
+labels:["Heatwave","Storm","Rain","Flood"],
+datasets:[{
+label:"Alerts",
+data:[
+data.heatwave_alerts,
+data.storm_alerts,
+data.rain_alerts,
+data.flood_alerts
+],
+backgroundColor:["red","purple","blue","orange"]
+}]
+}
+});
+
+}
+
+loadDashboard();
+
+</script>
+
+<script>
+
+var map = L.map('map').setView([20.5937,78.9629],5);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+attribution:'OpenStreetMap'
+}).addTo(map);
+
+fetch("/alerts/recent")
+.then(res=>res.json())
+.then(data=>{
+
+data.forEach(alert=>{
+
+fetch(`https://nominatim.openstreetmap.org/search?city=${alert.city}&format=json`)
+.then(r=>r.json())
+.then(loc=>{
+
+if(loc.length>0){
+
+let lat=loc[0].lat;
+let lon=loc[0].lon;
+
+L.marker([lat,lon])
+.addTo(map)
+.bindPopup(
+`<b>${alert.city}</b><br>
+${alert.alert}`
+);
+
+}
+
+});
+
+});
+
+});
+let lastAlertTime = null;
+
+async function checkNewAlerts(){
+
+    const res = await fetch("/alerts/recent");
+    const alerts = await res.json();
+
+    if(alerts.length === 0) return;
+
+    let newest = alerts[0].timestamp;
+
+    if(lastAlertTime && newest !== lastAlertTime){
+
+        let box = document.getElementById("notification");
+        box.innerHTML = "🚨 New Alert in " + alerts[0].city + " : " + alerts[0].alert;
+
+        box.style.display = "block";
+
+        setTimeout(()=>{
+            box.style.display = "none";
+        },5000);
+
+    }
+
+    lastAlertTime = newest;
+
+}
+
+setInterval(checkNewAlerts, 10000);
+
+
+const socket = io(window.location.origin === "null" ? "http://127.0.0.1:5000" : window.location.origin);
+
+socket.on("new_alert", function(data){
+
+    let box = document.getElementById("notification");
+
+    box.innerHTML = "🚨 " + data.alert + " in " + data.city;
+    box.style.display = "block";
+
+    setTimeout(()=>{
+        box.style.display="none";
+    },5000);
+
+});
+</script>
+
+</body>
+</html>

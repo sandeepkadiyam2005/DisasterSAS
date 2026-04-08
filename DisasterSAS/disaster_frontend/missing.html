@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Missing Persons — DisasterSAS</title>
+    <meta name="description" content="Report and track missing persons during disasters">
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .missing-photo-thumb {
+            width: 44px;
+            height: 44px;
+            object-fit: cover;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            display: block;
+        }
+
+        .photo-preview-wrap {
+            margin-top: 8px;
+            display: none;
+            align-items: center;
+            gap: 10px;
+            color: var(--text-secondary);
+            font-size: .78rem;
+        }
+
+        .photo-preview-wrap img {
+            width: 72px;
+            height: 72px;
+            border-radius: 10px;
+            object-fit: cover;
+            border: 1px solid var(--border);
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="main" id="mainContent">
+        <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
+            <div>
+                <h1>🔍 Missing Persons</h1>
+                <p>Report missing persons and track their status</p>
+            </div>
+            <button class="btn btn-primary" id="reportMissingBtn" onclick="openModal('missingModal'); resetForm()">+ Report Missing</button>
+        </div>
+
+        <!-- Filter -->
+        <div class="search-bar">
+            <input type="text" id="cityFilter" class="form-control" placeholder="Filter by city…"
+                style="max-width:250px">
+            <button class="btn btn-secondary" onclick="loadMissing()">🔍 Filter</button>
+        </div>
+
+        <div id="missingList">
+            <div class="loading-overlay"><span class="spinner"></span> Loading reports…</div>
+        </div>
+    </div>
+
+    <!-- Report Modal -->
+    <div class="modal-overlay" id="missingModal">
+        <div class="modal">
+            <h2 id="modalTitle">Report Missing Person</h2>
+            <input type="hidden" id="editId">
+            <input type="hidden" id="photo_filename">
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="name">Full Name</label>
+                    <input type="text" id="name" class="form-control" placeholder="Person's full name" required>
+                </div>
+                <div class="form-group">
+                    <label for="age">Age</label>
+                    <input type="number" id="age" class="form-control" placeholder="Age" min="0">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="city">City</label>
+                    <input type="text" id="city" class="form-control" placeholder="Last known city">
+                </div>
+                <div class="form-group">
+                    <label for="contact">Contact Number</label>
+                    <input type="text" id="contact" class="form-control" placeholder="Your phone number" required>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="description">Description</label>
+                <textarea id="description" class="form-control"
+                    placeholder="Physical description, clothing, last seen location…"></textarea>
+            </div>
+
+            <div class="form-group">
+                <label for="photo">Photo (optional)</label>
+                <input type="file" id="photo" class="form-control" accept="image/*">
+                <div class="photo-preview-wrap" id="photoPreviewWrap">
+                    <img id="photoPreviewImg" alt="Missing person preview">
+                    <span id="photoPreviewText">Photo selected</span>
+                </div>
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal('missingModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="saveMissing()">Submit Report</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+    <script>
+        if (!requireAnyPagePermission(["missing:view", "missing:report"])) throw "redirect";
+        buildSidebar("missing.html");
+        const canViewMissing = can("missing:view");
+        const canManageMissing = can("missing:manage");
+        const canReportMissing = can("missing:report");
+
+        if (!canReportMissing) {
+            document.getElementById("reportMissingBtn").style.display = "none";
+        }
+        if (!canViewMissing) {
+            const filterBar = document.querySelector(".search-bar");
+            if (filterBar) filterBar.style.display = "none";
+            document.getElementById("missingList").innerHTML = '<div class="empty-state"><div class="emoji">📝</div><p>Report form is available. Existing records are visible to volunteers/admin only.</p></div>';
+        }
+
+        const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+        let preparedPhotoFile = null;
+        let photoProcessing = false;
+
+        function formatBytes(bytes) {
+            if (!bytes) return "0 B";
+            const units = ["B", "KB", "MB", "GB"];
+            let size = bytes;
+            let unitIndex = 0;
+            while (size >= 1024 && unitIndex < units.length - 1) {
+                size /= 1024;
+                unitIndex += 1;
+            }
+            return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+        }
+
+        function resetForm() {
+            document.getElementById("editId").value = "";
+            document.getElementById("name").value = "";
+            document.getElementById("age").value = "";
+            document.getElementById("city").value = "";
+            document.getElementById("contact").value = "";
+            document.getElementById("description").value = "";
+            document.getElementById("photo_filename").value = "";
+            document.getElementById("photo").value = "";
+            preparedPhotoFile = null;
+            photoProcessing = false;
+            setPhotoPreview(null);
+            document.getElementById("modalTitle").textContent = "Report Missing Person";
+        }
+
+        function setPhotoPreview(url, label = "Photo selected") {
+            const wrap = document.getElementById("photoPreviewWrap");
+            const img = document.getElementById("photoPreviewImg");
+            const text = document.getElementById("photoPreviewText");
+
+            if (img.dataset.objectUrl) {
+                URL.revokeObjectURL(img.dataset.objectUrl);
+                img.dataset.objectUrl = "";
+            }
+
+            if (!url) {
+                wrap.style.display = "none";
+                img.removeAttribute("src");
+                text.textContent = "Photo selected";
+                return;
+            }
+
+            img.src = url;
+            if (url.startsWith("blob:")) img.dataset.objectUrl = url;
+            text.textContent = label;
+            wrap.style.display = "flex";
+        }
+
+        function loadImageFromObjectUrl(objectUrl) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => resolve(img);
+                img.onerror = () => reject(new Error("Invalid image file"));
+                img.src = objectUrl;
+            });
+        }
+
+        function canvasToBlob(canvas, type, quality) {
+            return new Promise((resolve, reject) => {
+                canvas.toBlob((blob) => {
+                    if (!blob) return reject(new Error("Image compression failed"));
+                    resolve(blob);
+                }, type, quality);
+            });
+        }
+
+        function sanitizedJpegName(fileName) {
+            const dot = fileName.lastIndexOf(".");
+            const raw = dot > 0 ? fileName.slice(0, dot) : fileName;
+            const safe = (raw || "missing_person").replace(/[^a-zA-Z0-9_-]/g, "_");
+            return `${safe}.jpg`;
+        }
+
+        async function compressImageIfNeeded(file) {
+            if (file.size <= MAX_UPLOAD_BYTES) return file;
+
+            const objectUrl = URL.createObjectURL(file);
+            try {
+                const img = await loadImageFromObjectUrl(objectUrl);
+                const canvas = document.createElement("canvas");
+                const ctx = canvas.getContext("2d", { alpha: false });
+                const targetBytes = MAX_UPLOAD_BYTES - (120 * 1024);
+                let scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+                let bestBlob = null;
+
+                for (let pass = 0; pass < 4; pass++) {
+                    const width = Math.max(320, Math.round(img.width * scale));
+                    const height = Math.max(320, Math.round(img.height * scale));
+
+                    canvas.width = width;
+                    canvas.height = height;
+                    ctx.clearRect(0, 0, width, height);
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    for (let quality = 0.9; quality >= 0.45; quality -= 0.1) {
+                        const blob = await canvasToBlob(canvas, "image/jpeg", quality);
+                        if (!bestBlob || blob.size < bestBlob.size) bestBlob = blob;
+                        if (blob.size <= targetBytes) {
+                            return new File([blob], sanitizedJpegName(file.name), { type: "image/jpeg" });
+                        }
+                    }
+
+                    scale *= 0.8;
+                }
+
+                if (bestBlob && bestBlob.size <= MAX_UPLOAD_BYTES) {
+                    return new File([bestBlob], sanitizedJpegName(file.name), { type: "image/jpeg" });
+                }
+
+                throw new Error("Image is too large even after optimization. Please choose a smaller image.");
+            } finally {
+                URL.revokeObjectURL(objectUrl);
+            }
+        }
+
+        document.getElementById("photo").addEventListener("change", async () => {
+            const file = document.getElementById("photo").files[0];
+            preparedPhotoFile = null;
+
+            if (!file) {
+                setPhotoPreview(null);
+                return;
+            }
+
+            photoProcessing = true;
+            setPhotoPreview(URL.createObjectURL(file), `${file.name} (${formatBytes(file.size)})`);
+
+            try {
+                if (file.size > MAX_UPLOAD_BYTES) {
+                    showToast("🛠 Optimizing", "Large photo detected. Compressing automatically...");
+                }
+
+                const optimized = await compressImageIfNeeded(file);
+                preparedPhotoFile = optimized;
+
+                if (optimized !== file) {
+                    setPhotoPreview(
+                        URL.createObjectURL(optimized),
+                        `${optimized.name} (${formatBytes(optimized.size)})`
+                    );
+                    showToast("✅ Optimized", `Photo optimized: ${formatBytes(file.size)} → ${formatBytes(optimized.size)}`);
+                }
+            } catch (err) {
+                preparedPhotoFile = null;
+                document.getElementById("photo").value = "";
+                setPhotoPreview(null);
+                showToast("❌ Error", err.message || "Failed to process image");
+            } finally {
+                photoProcessing = false;
+            }
+        });
+
+        async function uploadPhotoIfNeeded() {
+            const existingFilename = document.getElementById("photo_filename").value || null;
+            const file = preparedPhotoFile || document.getElementById("photo").files[0];
+
+            if (!file) return existingFilename;
+
+            const formData = new FormData();
+            formData.append("photo", file);
+
+            const headers = {};
+            const token = getToken();
+            if (token) headers["Authorization"] = "Bearer " + token;
+
+            const res = await fetch(API_BASE + "/missing/upload-photo", {
+                method: "POST",
+                headers,
+                body: formData
+            });
+
+            let data = {};
+            try { data = await res.json(); } catch (e) { }
+
+            if (!res.ok) {
+                throw { error: data.error || `Photo upload failed (${res.status})` };
+            }
+
+            document.getElementById("photo_filename").value = data.photo_filename || "";
+            if (data.photo_url) setPhotoPreview(data.photo_url, "Uploaded photo");
+
+            return data.photo_filename || null;
+        }
+
+        async function loadMissing() {
+            if (!canViewMissing) return;
+            const container = document.getElementById("missingList");
+            const city = document.getElementById("cityFilter").value.trim();
+            const query = city ? "?city=" + encodeURIComponent(city) : "";
+
+            try {
+                const people = await apiGet("/missing" + query);
+
+                if (!people.length) {
+                    container.innerHTML = '<div class="empty-state"><div class="emoji">✅</div><p>No missing person reports' + (city ? " in " + city : "") + "</p></div>";
+                    return;
+                }
+
+                container.innerHTML = `
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Photo</th><th>Name</th><th>Age</th><th>City</th><th>Description</th><th>Contact</th><th>Status</th><th>Reported</th><th>Actions</th></tr></thead>
+            <tbody>
+              ${people.map(p => `
+                <tr>
+                  <td>${p.photo_url ? `<a href="${p.photo_url}" target="_blank" rel="noopener"><img class="missing-photo-thumb" src="${p.photo_url}" alt="${p.name}"></a>` : "—"}</td>
+                  <td><strong>${p.name}</strong></td>
+                  <td>${p.age || "—"}</td>
+                  <td>${p.city || "—"}</td>
+                  <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.description || "—"}</td>
+                  <td>${p.contact}</td>
+                  <td>${severityBadge(p.status)}</td>
+                  <td style="color:var(--text-muted);font-size:.82rem">${fmtDate(p.reported_at)}</td>
+                  <td style="white-space:nowrap">
+                    ${canManageMissing
+                        ? `${p.status === "missing" ? `<button class="btn btn-success btn-sm" onclick="markFound(${p.id})">✅ Found</button>` : ""}
+                    <button class="btn btn-secondary btn-sm" onclick='editMissing(${JSON.stringify(p)})'>✏️</button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteMissing(${p.id})">🗑</button>`
+                        : '<span style="color:var(--text-muted)">Read only</span>'}
+                  </td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>`;
+            } catch (err) {
+                container.innerHTML = '<div class="empty-state"><div class="emoji">⚠</div><p>Failed to load reports</p></div>';
+            }
+        }
+
+        function editMissing(p) {
+            if (!canManageMissing) {
+                showToast("Access Denied", "You cannot edit missing-person records.");
+                return;
+            }
+            document.getElementById("editId").value = p.id;
+            document.getElementById("name").value = p.name;
+            document.getElementById("age").value = p.age || "";
+            document.getElementById("city").value = p.city || "";
+            document.getElementById("contact").value = p.contact;
+            document.getElementById("description").value = p.description || "";
+            document.getElementById("photo_filename").value = p.photo_filename || "";
+            document.getElementById("photo").value = "";
+            preparedPhotoFile = null;
+            photoProcessing = false;
+            setPhotoPreview(p.photo_url || null, p.photo_url ? "Current photo" : "Photo selected");
+            document.getElementById("modalTitle").textContent = "Edit Report";
+            openModal("missingModal");
+        }
+
+        async function saveMissing() {
+            const id = document.getElementById("editId").value;
+            if (id && !canManageMissing) {
+                showToast("Access Denied", "You cannot edit missing-person records.");
+                return;
+            }
+            if (!id && !canReportMissing) {
+                showToast("Access Denied", "You cannot report missing persons.");
+                return;
+            }
+            if (photoProcessing) {
+                showToast("⏳ Please wait", "Image is still being optimized...");
+                return;
+            }
+
+            let uploadedPhotoFilename = document.getElementById("photo_filename").value || null;
+
+            try {
+                uploadedPhotoFilename = await uploadPhotoIfNeeded();
+            } catch (err) {
+                showToast("❌ Error", err.error || "Failed to upload photo");
+                return;
+            }
+
+            const body = {
+                name: document.getElementById("name").value.trim(),
+                age: parseInt(document.getElementById("age").value) || null,
+                city: document.getElementById("city").value.trim() || null,
+                contact: document.getElementById("contact").value.trim(),
+                description: document.getElementById("description").value.trim() || null,
+                photo_filename: uploadedPhotoFilename
+            };
+
+            if (!body.name || !body.contact) {
+                showToast("⚠ Validation", "Name and contact are required");
+                return;
+            }
+
+            try {
+                if (id) {
+                    await apiPut("/missing/" + id, body);
+                    showToast("✅ Updated", "Report updated");
+                } else {
+                    await apiPost("/missing/report", body);
+                    showToast("✅ Reported", "Missing person reported successfully");
+                }
+                closeModal("missingModal");
+                loadMissing();
+            } catch (err) {
+                showToast("❌ Error", err.error || "Failed to save report");
+            }
+        }
+
+        async function markFound(id) {
+            if (!canManageMissing) {
+                showToast("Access Denied", "You cannot update missing-person status.");
+                return;
+            }
+            if (!confirm("Mark this person as found?")) return;
+            try {
+                await apiPut("/missing/" + id + "/found", {});
+                showToast("🎉 Found!", "Person marked as found. Record will auto-delete in 24 hours.");
+                loadMissing();
+            } catch (err) {
+                showToast("❌ Error", err.error || "Failed to update status");
+            }
+        }
+
+        async function deleteMissing(id) {
+            if (!canManageMissing) {
+                showToast("Access Denied", "You cannot delete missing-person records.");
+                return;
+            }
+            if (!confirm("Delete this report?")) return;
+            try {
+                await apiDelete("/missing/" + id);
+                showToast("🗑 Deleted", "Report removed");
+                loadMissing();
+            } catch (err) {
+                showToast("❌ Error", err.error || "Failed to delete");
+            }
+        }
+
+        if (canViewMissing) loadMissing();
+    </script>
+
+</body>
+
+</html>

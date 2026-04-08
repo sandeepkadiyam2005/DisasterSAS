@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resources — DisasterSAS</title>
+    <meta name="description" content="Track and manage shelter resources — food, water, medical kits, blankets">
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .resource-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .resource-card {
+            padding: 24px;
+        }
+
+        .resource-card h3 {
+            font-size: 1rem;
+            font-weight: 700;
+            margin-bottom: 16px;
+        }
+
+        .resource-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border-glass);
+        }
+
+        .resource-item:last-child {
+            border-bottom: none;
+        }
+
+        .resource-item .r-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .resource-item .r-value {
+            font-weight: 700;
+            font-size: 1.1rem;
+        }
+
+        .resource-item .r-value.low {
+            color: var(--danger);
+        }
+
+        .resource-item .r-value.ok {
+            color: var(--success);
+        }
+
+        .low-stock {
+            background: var(--danger-bg);
+            border: 1px solid rgba(239, 68, 68, .2);
+        }
+
+        .low-stock-chip {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: .72rem;
+            background: var(--danger-bg);
+            color: var(--danger);
+            font-weight: 600;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="main" id="mainContent">
+        <div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
+            <div>
+                <h1>📦 Resource Management</h1>
+                <p>Track shelter resources — food, water, medical kits, and blankets</p>
+            </div>
+            <button class="btn btn-primary" id="addResourceBtn" onclick="openModal('resourceModal'); resetForm()">+ Add / Update
+                Resources</button>
+        </div>
+
+        <!-- Summary Stats -->
+        <div class="stats-grid" id="summaryStats">
+            <div class="stat-card">
+                <div class="stat-icon">🍽</div>
+                <div class="stat-value" id="totalFood">—</div>
+                <div class="stat-label">Total Food Packets</div>
+            </div>
+            <div class="stat-card info">
+                <div class="stat-icon">💧</div>
+                <div class="stat-value" id="totalWater">—</div>
+                <div class="stat-label">Total Water Bottles</div>
+            </div>
+            <div class="stat-card success">
+                <div class="stat-icon">🩺</div>
+                <div class="stat-value" id="totalMedical">—</div>
+                <div class="stat-label">Total Medical Kits</div>
+            </div>
+            <div class="stat-card warning">
+                <div class="stat-icon">🛏</div>
+                <div class="stat-value" id="totalBlankets">—</div>
+                <div class="stat-label">Total Blankets</div>
+            </div>
+        </div>
+
+        <!-- Low Stock Warnings -->
+        <div id="lowStockSection" style="display:none;margin-bottom:24px">
+            <div class="card low-stock">
+                <h3 style="color:var(--danger);font-weight:700;margin-bottom:12px">⚠ Low Stock Alerts</h3>
+                <div id="lowStockList"></div>
+            </div>
+        </div>
+
+        <!-- Resources per shelter -->
+        <div class="resource-grid" id="resourceGrid">
+            <div class="loading-overlay"><span class="spinner"></span> Loading resources…</div>
+        </div>
+    </div>
+
+    <!-- Add/Update Modal -->
+    <div class="modal-overlay" id="resourceModal">
+        <div class="modal">
+            <h2>Add / Update Resources</h2>
+
+            <div class="form-group">
+                <label for="shelter_id">Shelter</label>
+                <select id="shelter_id" class="form-control" required>
+                    <option value="">Select a shelter</option>
+                </select>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="food">🍽 Food Packets</label>
+                    <input type="number" id="food" class="form-control" value="0" min="0">
+                </div>
+                <div class="form-group">
+                    <label for="water">💧 Water Bottles</label>
+                    <input type="number" id="water" class="form-control" value="0" min="0">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="medical">🩺 Medical Kits</label>
+                    <input type="number" id="medical" class="form-control" value="0" min="0">
+                </div>
+                <div class="form-group">
+                    <label for="blankets">🛏 Blankets</label>
+                    <input type="number" id="blankets" class="form-control" value="0" min="0">
+                </div>
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal('resourceModal')">Cancel</button>
+                <button class="btn btn-primary" id="saveResourceBtn" onclick="saveResource()">Save Resources</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+    <script>
+        if (!requirePagePermission("resources:view")) throw "redirect";
+        buildSidebar("resources.html");
+        const canManageResources = can("resources:manage");
+        if (!canManageResources) {
+            document.getElementById("addResourceBtn").style.display = "none";
+            document.getElementById("saveResourceBtn").style.display = "none";
+        }
+
+        async function loadShelterOptions() {
+            try {
+                const shelters = await apiGet("/shelters");
+                const opts = shelters.map(s => `<option value="${s.id}">${s.name}</option>`).join("");
+                document.getElementById("shelter_id").innerHTML = '<option value="">Select a shelter</option>' + opts;
+            } catch (e) { }
+        }
+
+        function resetForm() {
+            document.getElementById("shelter_id").value = "";
+            document.getElementById("food").value = "0";
+            document.getElementById("water").value = "0";
+            document.getElementById("medical").value = "0";
+            document.getElementById("blankets").value = "0";
+        }
+
+        async function loadSummary() {
+            try {
+                const s = await apiGet("/resources/summary");
+                document.getElementById("totalFood").textContent = s.total_food_packets;
+                document.getElementById("totalWater").textContent = s.total_water_bottles;
+                document.getElementById("totalMedical").textContent = s.total_medical_kits;
+                document.getElementById("totalBlankets").textContent = s.total_blankets;
+
+                const lowSection = document.getElementById("lowStockSection");
+                if (s.shelters_with_low_stock && s.shelters_with_low_stock.length > 0) {
+                    lowSection.style.display = "block";
+                    document.getElementById("lowStockList").innerHTML = s.shelters_with_low_stock.map(ls =>
+                        `<div style="display:flex;align-items:center;gap:8px;padding:6px 0">
+            <strong>${ls.shelter_name || "Shelter #" + ls.shelter_id}</strong>
+            — Low on: ${ls.low_items.map(i => `<span class="low-stock-chip">${i}</span>`).join(" ")}
+          </div>`
+                    ).join("");
+                } else {
+                    lowSection.style.display = "none";
+                }
+            } catch (e) { }
+        }
+
+        async function loadResources() {
+            const grid = document.getElementById("resourceGrid");
+            try {
+                const resources = await apiGet("/resources");
+
+                if (!resources.length) {
+                    grid.innerHTML = '<div class="empty-state"><div class="emoji">📦</div><p>No resources tracked yet. Add resources for a shelter to get started.</p></div>';
+                    return;
+                }
+
+                grid.innerHTML = resources.map(r => {
+                    const itemHtml = (icon, label, val, threshold) => {
+                        const cls = val < threshold ? "low" : "ok";
+                        return `<div class="resource-item">
+            <div class="r-label">${icon} ${label}</div>
+            <div class="r-value ${cls}">${val}</div>
+          </div>`;
+                    };
+
+                    return `
+          <div class="card resource-card">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <h3>🏠 ${r.shelter_name || "Shelter #" + r.shelter_id}</h3>
+              ${canManageResources
+                        ? `<button class="btn btn-secondary btn-sm" onclick="loadEdit(${r.id}, ${r.shelter_id}, ${r.food_packets}, ${r.water_bottles}, ${r.medical_kits}, ${r.blankets})">✏️ Edit</button>`
+                        : '<span style="color:var(--text-muted);font-size:.8rem">Read only</span>'}
+            </div>
+            ${itemHtml("🍽", "Food Packets", r.food_packets, 10)}
+            ${itemHtml("💧", "Water Bottles", r.water_bottles, 10)}
+            ${itemHtml("🩺", "Medical Kits", r.medical_kits, 5)}
+            ${itemHtml("🛏", "Blankets", r.blankets, 10)}
+            <div style="font-size:.75rem;color:var(--text-muted);margin-top:10px">Updated: ${fmtDate(r.last_updated)}</div>
+          </div>`;
+                }).join("");
+            } catch (err) {
+                grid.innerHTML = '<div class="empty-state"><div class="emoji">⚠</div><p>Failed to load resources</p></div>';
+            }
+        }
+
+        function loadEdit(id, shelterId, food, water, medical, blankets) {
+            if (!canManageResources) {
+                showToast("Access Denied", "Only admin can modify resources.");
+                return;
+            }
+            document.getElementById("shelter_id").value = shelterId;
+            document.getElementById("food").value = food;
+            document.getElementById("water").value = water;
+            document.getElementById("medical").value = medical;
+            document.getElementById("blankets").value = blankets;
+            openModal("resourceModal");
+        }
+
+        async function saveResource() {
+            if (!canManageResources) {
+                showToast("Access Denied", "Only admin can modify resources.");
+                return;
+            }
+            const body = {
+                shelter_id: parseInt(document.getElementById("shelter_id").value),
+                food_packets: parseInt(document.getElementById("food").value) || 0,
+                water_bottles: parseInt(document.getElementById("water").value) || 0,
+                medical_kits: parseInt(document.getElementById("medical").value) || 0,
+                blankets: parseInt(document.getElementById("blankets").value) || 0,
+            };
+
+            if (!body.shelter_id) {
+                showToast("⚠ Validation", "Please select a shelter");
+                return;
+            }
+
+            try {
+                await apiPost("/resources", body);
+                showToast("✅ Saved", "Resources updated for shelter");
+                closeModal("resourceModal");
+                loadResources();
+                loadSummary();
+            } catch (err) {
+                showToast("❌ Error", err.error || "Failed to save");
+            }
+        }
+
+        loadShelterOptions();
+        loadSummary();
+        loadResources();
+    </script>
+
+</body>
+
+</html>
